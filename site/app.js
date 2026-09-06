@@ -80,6 +80,20 @@ function showError(err) {
 async function renderHome(params) {
   setActiveTab('home');
   await loadVersions();
+
+  if (!state.versions.length) {
+    view.innerHTML = `
+      <h1>VerseWell</h1>
+      <p class="lede">The library is being stocked.</p>
+      <div class="error-box" style="border-color: var(--accent); background: var(--bg-soft, transparent)">
+        <strong>No translations are live just yet.</strong><br>
+        The initial import of the church's Bible translations into the database is in progress
+        (free-tier databases process it in daily batches). Please check back soon —
+        new versions appear automatically as each one finishes importing.
+      </div>`;
+    return;
+  }
+
   const version = params.get('v') || currentVersion();
 
   if (params.get('book')) {
