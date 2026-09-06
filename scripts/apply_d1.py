@@ -96,6 +96,30 @@ def ensure_schema():
     stmts = [s.strip() for s in "\n".join(lines).split(";") if s.strip()]
     for stmt in stmts:
         d1_query(stmt + ";")
+    # Self-heal: the verses table was first created with
+    # REFERENCES versions(code), but the import inserts the versions row LAST
+    # (atomic completion marker), so the enforced FK rejects every verse
+    # INSERT. CREATE TABLE IF NOT EXISTS above is a no-op on the existing
+    # table, so detect the stale FK and rebuild the table without it.
+    try:
+        row = d1_query("SELECT sql FROM sqlite_master WHERE name='verses';")
+        ddl = (row.get("results") or [{}])[0].get("sql") or ""
+    except Exception:
+        return
+    if "REFERENCES" not in ddl.upper():
+        return
+    print("stale FK detected on verses — rebuilding table without it…")
+    for stmt in (
+        "ALTER TABLE verses RENAME TO verses_old;",
+        "CREATE TABLE verses (version TEXT NOT NULL, book TEXT NOT NULL, book_name TEXT NOT NULL, "
+        "book_order INTEGER NOT NULL, chapter INTEGER NOT NULL, verse INTEGER NOT NULL, "
+        "text TEXT NOT NULL, PRIMARY KEY (version, book, chapter, verse));",
+        "INSERT INTO verses SELECT * FROM verses_old;",
+        "DROP TABLE verses_old;",
+        "CREATE INDEX IF NOT EXISTS idx_verses_lookup ON verses(version, book, chapter, verse);",
+    ):
+        d1_query(stmt)
+    print("verses table rebuilt (no FK).")
 
 
 def current_state():
