@@ -119,6 +119,13 @@ def split_sql(path):
     if buf:
         stmts.append("".join(buf))
 
+    # D1's /query API rejects explicit transaction control (BEGIN/COMMIT/
+    # SAVEPOINT -> error 7500); each /query call is already atomic per call.
+    # PRAGMA foreign_keys is also unnecessary for our append-only import.
+    skip = {"begin transaction;", "begin;", "commit;", "rollback;",
+            "pragma foreign_keys=off;", "pragma foreign_keys=on;"}
+    stmts = [s for s in stmts if s.strip().lower() not in skip]
+
     chunks, cur, size = [], [], 0
     for s in stmts:
         if size + len(s.encode()) > MAX_SQL_BYTES and cur:
