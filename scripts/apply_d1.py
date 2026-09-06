@@ -139,11 +139,45 @@ def split_sql(path):
 
 
 def apply_file(path):
+    """Apply one version's .sql, atomically w.r.t. the change-detector.
+
+    The `INSERT INTO versions` statement is the completion marker —
+    current_state() reads versions.source_sha256 to decide which files to
+    skip. If we applied it inline (near the top of the file) and the upload
+    later aborted, the version would be left PARTIALLY imported but marked
+    done, and every future deploy would skip it. So we hold the versions
+    statement back and apply it only after every other chunk succeeds.
+    A mid-import abort then leaves the version absent from `versions`,
+    guaranteeing the next run re-imports it from scratch."""
     chunks = split_sql(path)
-    for i, chunk in enumerate(chunks):
-        # strip transaction wrappers for per-chunk execution
+    data_chunks, version_stmt = [], None
+    for chunk in chunks:
+        if version_stmt is None and "INSERT INTO versions" in chunk:
+            # split the versions statement out of its chunk (it sits right
+            # after the DELETEs, which must run first anyway)
+            idx = chunk.find("INSERT INTO versions")
+            head, tail = chunk[:idx], chunk[idx:]
+            end = tail.find(";\n")
+            if end == -1:
+                end = tail.rfind(";") + 1
+            else:
+                end += 2
+            version_stmt = tail[:end]
+            remainder = tail[end:]
+            if head.strip():
+                data_chunks.append(head)
+            if remainder.strip():
+                data_chunks.append(remainder)
+        else:
+            data_chunks.append(chunk)
+    for i, chunk in enumerate(data_chunks):
         d1_query(chunk)
-        print(f"  {os.path.basename(path)} chunk {i + 1}/{len(chunks)} applied")
+        print(f"  {os.path.basename(path)} chunk {i + 1}/{len(data_chunks)} applied")
+    if version_stmt:
+        d1_query(version_stmt)
+        print(f"  {os.path.basename(path)} versions row committed (completion marker)")
+    else:
+        print(f"  WARNING: no INSERT INTO versions found in {path}")
 
 
 def main():

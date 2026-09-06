@@ -65,7 +65,7 @@
       "id": "task-05",
       "title": "Create Cloudflare D1 database + Pages project via API; connect GitHub auto-deploy; set up Actions workflow with auto-import of new/changed /bible-sources/ files on deploy",
       "status": "in_progress",
-      "notes": "D1 versewell-db + Pages project versewell created; worker config, GHA deploy workflow and deploy_pages.sh committed. Blocking bug being fixed in task-04: partial CEV import in D1 must be re-applied after the dedup fix; then worker/pages deploy steps can run. GH Actions secrets must be confirmed present (import step ran in CI, so secrets exist).",
+      "notes": "D1 + Pages + worker all provisioned and deploy workflow green (run 34057840534). Found+fixed a state-detection atomicity bug: a mid-import abort in the earlier failed run had already written versions.source_sha256 for AMP/CEV/GW/KJV/MSG before dying, so the change-detector then skipped them forever while their data was partial (CEV had 22,800/28,979 verses, 0 footnotes, 0 intros). Fix: apply_d1.py now holds the INSERT INTO versions statement back and applies it only after all data chunks succeed (verified locally: DELETEs first, versions row last, all statements preserved). Repair: delete versions rows via API so next deploy re-imports all 10 atomically. Pages direct-upload deployment succeeded (b9feba97).",
       "commits": [],
       "files_modified": []
     },
@@ -145,5 +145,5 @@
     }
   ],
   "concerns_for_human_review": [],
-  "resume_from": "task-05/06: commit+push the import.py dedup fix; the triggered deploy re-imports (DELETE-then-INSERT per version) and then deploys worker+pages; verify live; then task-06 row-count verification."
+  "resume_from": "task-05/06: push atomicity fix; DELETE FROM versions via CF API to force clean re-import; confirm deploy run green; verify D1 counts == source counts (CEV 28,979v/4,905f/66i; totals ~268,513v / 24,354f / 66i); spot-check CEV John 3 + Gen intro; then task-07+ API/site live checks."
 }
