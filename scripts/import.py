@@ -149,6 +149,8 @@ def import_file(path, out_sql):
     sha = hashlib.sha256(open(path, "rb").read()).hexdigest()
 
     verses, footnotes, intros = [], [], []
+    seen_verse_keys = set()
+    seen_fn_keys = set()
 
     # --- verses ---
     for r in cur.execute("SELECT book, verse, unformatted FROM verses ORDER BY id"):
@@ -171,6 +173,14 @@ def import_file(path, out_sql):
         b = books.get(r["book"])
         if not b:
             continue
+        # Some source files contain genuine duplicate rows for one reference
+        # (e.g. CEV has two Mark 17.009 rows = Mark 16:9 after the chapter
+        # shift: the main text and a trailing summary line). Keep the first
+        # row in source order; never emit two rows for one primary key.
+        vkey = (r["book"], ch, vnum)
+        if vkey in seen_verse_keys:
+            continue
+        seen_verse_keys.add(vkey)
         verses.append((code, r["book"], b["human"], b["number"], ch, vnum, text))
 
     # --- footnotes ---
@@ -205,7 +215,19 @@ def import_file(path, out_sql):
         note = re.sub(r"^([A-Za-z ]+)?\d+[:.]\d+([,\-\u2013]\d+)*\s*", "", note).strip()
         if not note:
             continue
-        footnotes.append((code, osis, ch, vnum, note_marker(link, len(footnotes) + 1), note))
+        marker = note_marker(link, len(footnotes) + 1)
+        # Guarantee (book, chapter, verse, marker) uniqueness: a verse can be
+        # annotated twice by the source (e.g. CEV Mark 16:9), which would
+        # otherwise collide on the primary key.
+        fkey = (osis, ch, vnum, marker)
+        if fkey in seen_fn_keys:
+            suffix = 2
+            while (osis, ch, vnum, f"{marker}.{suffix}") in seen_fn_keys:
+                suffix += 1
+            marker = f"{marker}.{suffix}"
+            fkey = (osis, ch, vnum, marker)
+        seen_fn_keys.add(fkey)
+        footnotes.append((code, osis, ch, vnum, marker, note))
 
     # --- section intros (CEV book-level *.int chapters) ---
     for r in cur.execute(

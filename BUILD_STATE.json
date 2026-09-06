@@ -1,5 +1,5 @@
 {
-  "project": "VerseWell \u2014 public Bible REST API + reading website",
+  "project": "VerseWell — public Bible REST API + reading website",
   "repo": "https://github.com/vjumbo264/versewell",
   "build_complete": false,
   "last_updated_utc": "2026-09-06",
@@ -10,9 +10,9 @@
     "ci": "GitHub Actions",
     "constraints": [
       "Free tier only, end to end",
-      "No custom domain \u2014 production URLs are *.pages.dev and *.workers.dev",
+      "No custom domain — production URLs are *.pages.dev and *.workers.dev",
       "No user authentication anywhere",
-      "Operator works entirely from Android phone (Termux + browser dashboards) \u2014 no local CLI assumptions in docs"
+      "Operator works entirely from Android phone (Termux + browser dashboards) — no local CLI assumptions in docs"
     ]
   },
   "source_data": {
@@ -36,7 +36,7 @@
       "id": "task-02",
       "title": "Inventory Drive folder .sqlite files; inspect each file's actual schema; document in ARCHITECTURE.md",
       "status": "done",
-      "notes": "Inventoried Drive folder 1DWkrc33kGOCTR0LFZhMzANFi_IryA5wn via public embeddedfolderview + uc?export=download. 11 valid SQLite files: amp, cev, gw, kjv, msg(.db), niv2011, nkjv, nlt, nlv, tlb, voice. Common schema: books/verses(verse=REAL chapter.fff)/annotations/chapters/metadata. Quirks verified: CEV verses shifted +1 chapter (John 4.016 = John 3:16 text) + 66 book-intros as Xxx.int chapters; MSG merged sparse verses (13,118 rows); fen-N annotation link uses global per-book verse counter (AMP Gen 2:4 = fen-AMP-35a); annotation styles: fen-*/cen-* (BibleGateway) vs !f./!x. (USFM, CEV/KJV/MSG); leading section headings embedded in unformatted text. Full per-file table documented in ARCHITECTURE.md \u00a71.",
+      "notes": "Inventoried Drive folder 1DWkrc33kGOCTR0LFZhMzANFi_IryA5wn via public embeddedfolderview + uc?export=download. 11 valid SQLite files: amp, cev, gw, kjv, msg(.db), niv2011, nkjv, nlt, nlv, tlb, voice. Common schema: books/verses(verse=REAL chapter.fff)/annotations/chapters/metadata. Quirks verified: CEV verses shifted +1 chapter (John 4.016 = John 3:16 text) + 66 book-intros as Xxx.int chapters; MSG merged sparse verses (13,118 rows); fen-N annotation link uses global per-book verse counter (AMP Gen 2:4 = fen-AMP-35a); annotation styles: fen-*/cen-* (BibleGateway) vs !f./!x. (USFM, CEV/KJV/MSG); leading section headings embedded in unformatted text. Full per-file table documented in ARCHITECTURE.md §1.",
       "commits": [],
       "files_modified": [
         "ARCHITECTURE.md"
@@ -44,9 +44,9 @@
     },
     {
       "id": "task-03",
-      "title": "Design + commit unified D1 schema (versions, verses, footnotes, section_intros); document source\u2192unified mapping in ARCHITECTURE.md",
+      "title": "Design + commit unified D1 schema (versions, verses, footnotes, section_intros); document source→unified mapping in ARCHITECTURE.md",
       "status": "done",
-      "notes": "Unified D1 schema committed as schema.sql (versions/verses/footnotes/section_intros + lookup indexes). Source-to-unified mapping incl. all per-file quirks documented in ARCHITECTURE.md \u00a72. Versions keyed by uppercased metadata.name code (AMP, CEV, GW, KJV, MSG, NIV2011, NKJV, NLT, NLV, TLB, VOICE). CEV chapter-1 shift applied on import; cen-/!x. cross-references skipped (footnotes only).",
+      "notes": "Unified D1 schema committed as schema.sql (versions/verses/footnotes/section_intros + lookup indexes). Source-to-unified mapping incl. all per-file quirks documented in ARCHITECTURE.md §2. Versions keyed by uppercased metadata.name code (AMP, CEV, GW, KJV, MSG, NIV2011, NKJV, NLT, NLV, TLB, VOICE). CEV chapter-1 shift applied on import; cen-/!x. cross-references skipped (footnotes only).",
       "commits": [],
       "files_modified": [
         "schema.sql",
@@ -55,9 +55,9 @@
     },
     {
       "id": "task-04",
-      "title": "Create /bible-sources/ folder, copy each .sqlite into it, build import/migration script (sqlite file \u2192 unified D1 schema, incl. footnotes + section_intros)",
+      "title": "Create /bible-sources/ folder, copy each .sqlite into it, build import/migration script (sqlite file → unified D1 schema, incl. footnotes + section_intros)",
       "status": "in_progress",
-      "notes": "Building /bible-sources/ + import script next.",
+      "notes": "Import pipeline operational: 10 of 11 church files import cleanly via scripts/import.py (voice.sqlite3 held back per D4). Found+fixed a real blocker: the CEV source genuinely contains two rows for Mark 17.009 (= Mark 16:9 after chapter shift) — the main verse text plus a trailing summary line — which violated the verses PK mid-upload (D1 err 7500 SQLITE_CONSTRAINT after chunk 56/84, leaving a partial CEV import). Fix: deterministic dedup guards in import.py (first-row-wins per verse key; marker-suffix uniqueness per footnote key). Regenerated all SQL: 0 duplicate PKs across all 10 files.",
       "commits": [],
       "files_modified": []
     },
@@ -65,7 +65,7 @@
       "id": "task-05",
       "title": "Create Cloudflare D1 database + Pages project via API; connect GitHub auto-deploy; set up Actions workflow with auto-import of new/changed /bible-sources/ files on deploy",
       "status": "in_progress",
-      "notes": "D1 database versewell-db created via API (id in .d1_database_id). Pages project versewell created (subdomain versewell.pages.dev, direct-upload mode). Worker + GHA workflow + repo secrets next. NOTE: voice.sqlite3 deliberately held back from the initial import so task-11 can demonstrate the add-a-version flow (drop file -> push -> CI imports -> appears live) with a REAL church file.",
+      "notes": "D1 versewell-db + Pages project versewell created; worker config, GHA deploy workflow and deploy_pages.sh committed. Blocking bug being fixed in task-04: partial CEV import in D1 must be re-applied after the dedup fix; then worker/pages deploy steps can run. GH Actions secrets must be confirmed present (import step ran in CI, so secrets exist).",
       "commits": [],
       "files_modified": []
     },
@@ -145,5 +145,5 @@
     }
   ],
   "concerns_for_human_review": [],
-  "resume_from": "task-05: worker deploy script + GHA workflow + GH secrets; then live import of the 10 present files."
+  "resume_from": "task-05/06: commit+push the import.py dedup fix; the triggered deploy re-imports (DELETE-then-INSERT per version) and then deploys worker+pages; verify live; then task-06 row-count verification."
 }
