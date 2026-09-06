@@ -35,24 +35,29 @@
     {
       "id": "task-02",
       "title": "Inventory Drive folder .sqlite files; inspect each file's actual schema; document in ARCHITECTURE.md",
-      "status": "in_progress",
-      "notes": "Starting Drive folder inventory.",
+      "status": "done",
+      "notes": "Inventoried Drive folder 1DWkrc33kGOCTR0LFZhMzANFi_IryA5wn via public embeddedfolderview + uc?export=download. 11 valid SQLite files: amp, cev, gw, kjv, msg(.db), niv2011, nkjv, nlt, nlv, tlb, voice. Common schema: books/verses(verse=REAL chapter.fff)/annotations/chapters/metadata. Quirks verified: CEV verses shifted +1 chapter (John 4.016 = John 3:16 text) + 66 book-intros as Xxx.int chapters; MSG merged sparse verses (13,118 rows); fen-N annotation link uses global per-book verse counter (AMP Gen 2:4 = fen-AMP-35a); annotation styles: fen-*/cen-* (BibleGateway) vs !f./!x. (USFM, CEV/KJV/MSG); leading section headings embedded in unformatted text. Full per-file table documented in ARCHITECTURE.md \u00a71.",
       "commits": [],
-      "files_modified": []
+      "files_modified": [
+        "ARCHITECTURE.md"
+      ]
     },
     {
       "id": "task-03",
       "title": "Design + commit unified D1 schema (versions, verses, footnotes, section_intros); document source\u2192unified mapping in ARCHITECTURE.md",
-      "status": "pending",
-      "notes": "",
+      "status": "done",
+      "notes": "Unified D1 schema committed as schema.sql (versions/verses/footnotes/section_intros + lookup indexes). Source-to-unified mapping incl. all per-file quirks documented in ARCHITECTURE.md \u00a72. Versions keyed by uppercased metadata.name code (AMP, CEV, GW, KJV, MSG, NIV2011, NKJV, NLT, NLV, TLB, VOICE). CEV chapter-1 shift applied on import; cen-/!x. cross-references skipped (footnotes only).",
       "commits": [],
-      "files_modified": []
+      "files_modified": [
+        "schema.sql",
+        "ARCHITECTURE.md"
+      ]
     },
     {
       "id": "task-04",
       "title": "Create /bible-sources/ folder, copy each .sqlite into it, build import/migration script (sqlite file \u2192 unified D1 schema, incl. footnotes + section_intros)",
-      "status": "pending",
-      "notes": "",
+      "status": "in_progress",
+      "notes": "Building /bible-sources/ + import script next.",
       "commits": [],
       "files_modified": []
     },
@@ -113,7 +118,26 @@
       "files_modified": []
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "D1",
+      "date": "2026-09-06",
+      "decision": "Import footnotes only (fen-*/!f.); skip cross-references (cen-*/!x.) for now.",
+      "reason": "Prompt requires footnotes + section intros; cross-refs are in the explicit do-not-build-yet list."
+    },
+    {
+      "id": "D2",
+      "date": "2026-09-06",
+      "decision": "CEV book introductions stored as section_intros at chapter=1 spanning all of chapter 1.",
+      "reason": "CEV is the only source with intros; they are book-level, so they render as the bordered block before chapter 1."
+    },
+    {
+      "id": "D3",
+      "date": "2026-09-06",
+      "decision": "Leading section-heading lines inside verses.unformatted are stripped on import (not exposed separately yet).",
+      "reason": "Keeps verse text clean for API consumers; heading extraction can be a later enhancement."
+    }
+  ],
   "concerns_for_human_review": [],
-  "resume_from": "task-02: list .sqlite files in Drive folder 1DWkrc33kGOCTR0LFZhMzANFi_IryA5wn, download each, inspect schemas."
+  "resume_from": "task-04: copy 11 sqlite files from /tmp/bible_src into /bible-sources/ (rename msg.sqlite3.db -> msg.sqlite3), write scripts/import.py + scripts/apply_d1.py."
 }
