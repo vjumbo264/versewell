@@ -66,13 +66,12 @@ def d1_query(sql, params=None):
 
 
 def ensure_schema():
-    schema = open(os.path.join(os.path.dirname(__file__), "..", "schema.sql")).read()
-    # split on statement boundaries; schema.sql uses one statement per block
-    stmts = [s.strip() for s in schema.split(";") if s.strip() and not s.strip().startswith("--")]
-    for raw in stmts:
-        stmt = "\n".join(l for l in raw.splitlines() if not l.strip().startswith("--")).strip()
-        if stmt:
-            d1_query(stmt + ";")
+    path = os.path.join(os.path.dirname(__file__), "..", "schema.sql")
+    # strip comment lines BEFORE splitting on ';' (comments may contain ';')
+    lines = [l for l in open(path).read().splitlines() if not l.strip().startswith("--")]
+    stmts = [s.strip() for s in "\n".join(lines).split(";") if s.strip()]
+    for stmt in stmts:
+        d1_query(stmt + ";")
 
 
 def current_state():

@@ -1,0 +1,9 @@
+name = "versewell-api"
+main = "index.js"
+compatibility_date = "2024-09-01"
+workers_dev = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "versewell-db"
+database_id = "960dbee2-96e3-4629-9ebb-a90b0ac90732"
