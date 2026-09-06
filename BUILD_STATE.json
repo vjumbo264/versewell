@@ -1,5 +1,5 @@
 {
-  "project": "VerseWell — public Bible REST API + reading website",
+  "project": "VerseWell \u2014 public Bible REST API + reading website",
   "repo": "https://github.com/vjumbo264/versewell",
   "build_complete": false,
   "last_updated_utc": "2026-09-06",
@@ -10,9 +10,9 @@
     "ci": "GitHub Actions",
     "constraints": [
       "Free tier only, end to end",
-      "No custom domain — production URLs are *.pages.dev and *.workers.dev",
+      "No custom domain \u2014 production URLs are *.pages.dev and *.workers.dev",
       "No user authentication anywhere",
-      "Operator works entirely from Android phone (Termux + browser dashboards) — no local CLI assumptions in docs"
+      "Operator works entirely from Android phone (Termux + browser dashboards) \u2014 no local CLI assumptions in docs"
     ]
   },
   "source_data": {
@@ -23,22 +23,26 @@
     {
       "id": "task-01",
       "title": "Create public GitHub repo vjumbo264/versewell, seed BUILD_STATE.json, verify push",
-      "status": "in_progress",
-      "notes": "Repo created 2026-09-06 via GitHub API (public, default branch main). Seeding BUILD_STATE.json and pushing as push-access proof.",
-      "commits": [],
-      "files_modified": ["BUILD_STATE.json"]
+      "status": "done",
+      "notes": "Repo vjumbo264/versewell created via GitHub API (public, main). Seed commit pushed and verified: local HEAD == origin/main == ccea03bdd56f4889ba8274e5827e7252984c36f2. Push access proven.",
+      "commits": [
+        "ccea03bdd56f4889ba8274e5827e7252984c36f2"
+      ],
+      "files_modified": [
+        "BUILD_STATE.json"
+      ]
     },
     {
       "id": "task-02",
       "title": "Inventory Drive folder .sqlite files; inspect each file's actual schema; document in ARCHITECTURE.md",
-      "status": "pending",
-      "notes": "",
+      "status": "in_progress",
+      "notes": "Starting Drive folder inventory.",
       "commits": [],
       "files_modified": []
     },
     {
       "id": "task-03",
-      "title": "Design + commit unified D1 schema (versions, verses, footnotes, section_intros); document source→unified mapping in ARCHITECTURE.md",
+      "title": "Design + commit unified D1 schema (versions, verses, footnotes, section_intros); document source\u2192unified mapping in ARCHITECTURE.md",
       "status": "pending",
       "notes": "",
       "commits": [],
@@ -46,7 +50,7 @@
     },
     {
       "id": "task-04",
-      "title": "Create /bible-sources/ folder, copy each .sqlite into it, build import/migration script (sqlite file → unified D1 schema, incl. footnotes + section_intros)",
+      "title": "Create /bible-sources/ folder, copy each .sqlite into it, build import/migration script (sqlite file \u2192 unified D1 schema, incl. footnotes + section_intros)",
       "status": "pending",
       "notes": "",
       "commits": [],
@@ -111,5 +115,5 @@
   ],
   "decisions": [],
   "concerns_for_human_review": [],
-  "resume_from": "task-01: push this seed commit, verify on origin/main, then begin task-02 (Drive folder inventory)."
+  "resume_from": "task-02: list .sqlite files in Drive folder 1DWkrc33kGOCTR0LFZhMzANFi_IryA5wn, download each, inspect schemas."
 }
