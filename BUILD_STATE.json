@@ -64,8 +64,8 @@
     {
       "id": "task-05",
       "title": "Create Cloudflare D1 database + Pages project via API; connect GitHub auto-deploy; set up Actions workflow with auto-import of new/changed /bible-sources/ files on deploy",
-      "status": "pending",
-      "notes": "",
+      "status": "in_progress",
+      "notes": "D1 database versewell-db created via API (id in .d1_database_id). Pages project versewell created (subdomain versewell.pages.dev, direct-upload mode). Worker + GHA workflow + repo secrets next. NOTE: voice.sqlite3 deliberately held back from the initial import so task-11 can demonstrate the add-a-version flow (drop file -> push -> CI imports -> appears live) with a REAL church file.",
       "commits": [],
       "files_modified": []
     },
@@ -136,8 +136,14 @@
       "date": "2026-09-06",
       "decision": "Leading section-heading lines inside verses.unformatted are stripped on import (not exposed separately yet).",
       "reason": "Keeps verse text clean for API consumers; heading extraction can be a later enhancement."
+    },
+    {
+      "id": "D4",
+      "date": "2026-09-06",
+      "decision": "Hold voice.sqlite3 out of the initial 10-version import; add it back via the normal /bible-sources/ flow during task-11.",
+      "reason": "Gives a genuine end-to-end demonstration of the auto-import mechanism using a real source file."
     }
   ],
   "concerns_for_human_review": [],
-  "resume_from": "task-04: copy 11 sqlite files from /tmp/bible_src into /bible-sources/ (rename msg.sqlite3.db -> msg.sqlite3), write scripts/import.py + scripts/apply_d1.py."
+  "resume_from": "task-05: worker deploy script + GHA workflow + GH secrets; then live import of the 10 present files."
 }
