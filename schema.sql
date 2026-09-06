@@ -15,8 +15,12 @@ CREATE TABLE IF NOT EXISTS versions (
   imported_at   TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- NOTE: no REFERENCES versions(code) FK here. D1 enforces foreign keys and
+-- the import pipeline inserts the versions row LAST (it is the atomic
+-- completion marker), so an enforced FK would reject every verses INSERT.
+-- Referential integrity is guaranteed by the import pipeline itself.
 CREATE TABLE IF NOT EXISTS verses (
-  version    TEXT NOT NULL REFERENCES versions(code),
+  version    TEXT NOT NULL,
   book       TEXT NOT NULL,
   book_name  TEXT NOT NULL,
   book_order INTEGER NOT NULL,

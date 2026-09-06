@@ -4,6 +4,12 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  # D1 free tier allows ~100k row-writes/day; a full multi-version import is
+  # ~300k rows and must span several days. This daily run resumes the import
+  # automatically (apply_d1.py skips versions already fully imported and stops
+  # gracefully when the day's quota is spent).
+  schedule:
+    - cron: "17 2 * * *"
 
 env:
   CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

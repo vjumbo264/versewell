@@ -16,6 +16,15 @@ What it does:
   3. Runs scripts/import.py.
   4. Uploads each produced *.sql to D1, chunked to stay under API limits.
 
+QUOTA (D1 free tier): ~100k rows WRITTEN per day per account, reset at
+midnight UTC. A full import of all versions is ~300k rows, so it cannot
+finish in one day. This script therefore stops gracefully when the quota
+error is hit (versions only become visible to the API after their
+completion marker lands, so a partial day is always resumable), and the
+GitHub Actions workflow runs on a daily schedule — the import completes
+automatically over successive days. --all likewise stops at the quota
+boundary; just re-run (or wait for the next scheduled run).
+
 Usage:
   python3 scripts/apply_d1.py --state-only   # just write IMPORT_STATE json
   python3 scripts/apply_d1.py                # full import of new/changed files
@@ -28,6 +37,14 @@ import sys
 import time
 import urllib.request
 import urllib.error
+
+
+class QuotaExhausted(Exception):
+    """Raised when D1's free-tier daily row-write limit is hit."""
+
+
+def _is_quota_error(msg):
+    return "row write limit" in msg or "daily row" in msg
 
 API = "https://api.cloudflare.com/client/v4"
 TOKEN = os.environ.get("CLOUDFLARE_API_TOKEN", "")
@@ -56,10 +73,15 @@ def d1_query(sql, params=None):
             with urllib.request.urlopen(req, timeout=120) as resp:
                 data = json.loads(resp.read())
             if not data.get("success"):
+                msg = json.dumps(data.get("errors"))
+                if _is_quota_error(msg):
+                    raise QuotaExhausted(msg)
                 raise RuntimeError(f"D1 query failed: {data.get('errors')}")
             return data["result"][0]
         except urllib.error.HTTPError as e:
             detail = e.read().decode(errors="replace")[:400]
+            if _is_quota_error(detail):
+                raise QuotaExhausted(detail) from e
             if e.code in (429, 500, 502, 503) and attempt < 3:
                 time.sleep(2 ** attempt)
                 continue
@@ -172,7 +194,7 @@ def apply_file(path):
             data_chunks.append(chunk)
     for i, chunk in enumerate(data_chunks):
         d1_query(chunk)
-        print(f"  {os.path.basename(path)} chunk {i + 1}/{len(data_chunks)} applied")
+        print(f"  {os.path.basename(path)} chunk {i + 1}/{len(data_chunks)} applied", flush=True)
     if version_stmt:
         d1_query(version_stmt)
         print(f"  {os.path.basename(path)} versions row committed (completion marker)")
@@ -200,12 +222,30 @@ def main():
     subprocess.run(args, check=True, env={**os.environ, "IMPORT_OUT": OUT_DIR, "IMPORT_STATE": STATE_FILE})
 
     manifest = json.load(open(os.path.join(OUT_DIR, "manifest.json")))
+    quota_hit = False
     for item in manifest["imported"]:
         print(f"applying {item['code']} ({item['verses']} verses)…")
-        apply_file(item["sql"])
+        try:
+            apply_file(item["sql"])
+        except QuotaExhausted as e:
+            # Daily row-write budget spent. Any version whose completion
+            # marker (INSERT INTO versions) did not land is still treated as
+            # unimported, so the next run resumes it automatically.
+            print(f"\nD1 daily write quota exhausted: {e}")
+            print("Stopping here; remaining versions resume on the next run "
+                  "(scheduled daily, or manual re-run). This is expected on "
+                  "the free tier and is NOT a build failure.")
+            quota_hit = True
+            break
     print("skipped (unchanged):", [s["code"] for s in manifest["skipped"]])
     print("errors:", manifest["errors"])
-    return 1 if manifest["errors"] else 0
+    if manifest["errors"]:
+        return 1
+    # Quota stop: exit 0 so CI marks the run successful (import continues
+    # tomorrow via the scheduled workflow) but surfaces the note in the log.
+    if quota_hit:
+        print("::notice::D1 daily write quota reached — import resumes on next run")
+    return 0
 
 
 if __name__ == "__main__":
