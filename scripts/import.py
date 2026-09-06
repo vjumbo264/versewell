@@ -35,7 +35,9 @@ STATE_FILE = os.environ.get("IMPORT_STATE", "")  # JSON: {code: sha256} already 
 
 # Books present in each source in canonical order (from the source's own
 # `books` table — we never hardcode the canon).
-BATCH = 400  # rows per INSERT statement (keeps D1/SQLite happy)
+BATCH = 100  # rows per INSERT statement. Merged-text versions (MSG) can
+# exceed D1's per-statement size limit (SQLITE_TOOBIG) at larger batches,
+# even when the overall chunk size is small. 100 keeps every statement small.
 
 
 def esc(s):
@@ -262,9 +264,22 @@ def import_file(path, out_sql):
     )
 
     def emit(table, cols, rows):
-        for i in range(0, len(rows), BATCH):
-            chunk = rows[i : i + BATCH]
-            vals = ",\n".join("(" + ", ".join(esc(c) for c in row) + ")" for row in chunk)
+        # Batch by both count and accumulated bytes so a few very long rows
+        # (merged MSG paragraphs) can never push one INSERT over D1's
+        # per-statement limit.
+        MAX_STMT_BYTES = 60_000
+        i = 0
+        while i < len(rows):
+            batch, size = [], 0
+            while i < len(rows) and len(batch) < BATCH:
+                row_sql = "(" + ", ".join(esc(c) for c in rows[i]) + ")"
+                n = len(row_sql.encode())
+                if batch and size + n > MAX_STMT_BYTES:
+                    break
+                batch.append(row_sql)
+                size += n
+                i += 1
+            vals = ",\n".join(batch)
             w(f"INSERT INTO {table} ({cols}) VALUES\n{vals};\n")
 
     emit("verses", "version, book, book_name, book_order, chapter, verse, text", verses)

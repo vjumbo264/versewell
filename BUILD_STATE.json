@@ -57,7 +57,7 @@
       "id": "task-04",
       "title": "Create /bible-sources/ folder, copy each .sqlite into it, build import/migration script (sqlite file → unified D1 schema, incl. footnotes + section_intros)",
       "status": "in_progress",
-      "notes": "Import pipeline operational: 10 of 11 church files import cleanly via scripts/import.py (voice.sqlite3 held back per D4). Found+fixed a real blocker: the CEV source genuinely contains two rows for Mark 17.009 (= Mark 16:9 after chapter shift) — the main verse text plus a trailing summary line — which violated the verses PK mid-upload (D1 err 7500 SQLITE_CONSTRAINT after chunk 56/84, leaving a partial CEV import). Fix: deterministic dedup guards in import.py (first-row-wins per verse key; marker-suffix uniqueness per footnote key). Regenerated all SQL: 0 duplicate PKs across all 10 files.",
+      "notes": "Import pipeline operational for all 10 present files. Two real blockers found+fixed: (1) CEV source has two rows for Mark 17.009 (= Mark 16:9 after chapter shift) — PK collision, fixed with first-row-wins dedup; (2) MSG merged paragraphs made a single 400-row INSERT exceed D1's per-statement limit (SQLITE_TOOBIG) — fixed by batching emit() on both row count (<=100) AND accumulated bytes (<=60KB). Regenerated: max statement ~60KB (was >900KB), 0 duplicate PKs.",
       "commits": [],
       "files_modified": []
     },
