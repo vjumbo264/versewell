@@ -232,7 +232,15 @@ def main():
         return 2
     os.makedirs(OUT_DIR, exist_ok=True)
     print("ensuring schema…")
-    ensure_schema()
+    try:
+        ensure_schema()
+    except QuotaExhausted as e:
+        # Quota already spent before we even start (e.g. earlier runs today).
+        # Nothing can be written, so skip the import entirely but let the
+        # deploy steps of the workflow proceed — exit 0 with a notice.
+        print(f"D1 daily write quota already exhausted before import: {e}")
+        print("::notice::D1 daily write quota reached — import resumes on next scheduled run")
+        return 0
     print("reading current versions state…")
     state = current_state()
     json.dump(state, open(STATE_FILE, "w"))
