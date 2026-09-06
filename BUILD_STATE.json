@@ -56,64 +56,111 @@
     {
       "id": "task-04",
       "title": "Create /bible-sources/ folder, copy each .sqlite into it, build import/migration script (sqlite file → unified D1 schema, incl. footnotes + section_intros)",
-      "status": "in_progress",
-      "notes": "Import pipeline operational for all 10 present files. Two real blockers found+fixed: (1) CEV source has two rows for Mark 17.009 (= Mark 16:9 after chapter shift) — PK collision, fixed with first-row-wins dedup; (2) MSG merged paragraphs made a single 400-row INSERT exceed D1's per-statement limit (SQLITE_TOOBIG) — fixed by batching emit() on both row count (<=100) AND accumulated bytes (<=60KB). Regenerated: max statement ~60KB (was >900KB), 0 duplicate PKs.",
-      "commits": [],
-      "files_modified": []
+      "status": "done",
+      "notes": "Import pipeline fully operational: /bible-sources/ holds the 10 church .sqlite3 files (voice.sqlite3 deliberately held back for the task-11 add-version demo, per D4). import.py maps each source onto the unified schema with per-file quirks (CEV +1 chapter shift, CEV book intros -> section_intros, MSG merged sparse verses, fen-N global verse counter, !f./fen- footnote styles, section-heading stripping). apply_d1.py uploads SQL to D1 via the Cloudflare API in <=90KB statement chunks, applying the versions row LAST as the atomic completion marker, and is quota-aware (stops gracefully at the D1 free-tier daily row-write limit so the daily scheduled workflow resumes).",
+      "commits": [
+        "8df7b5c",
+        "2f2072a",
+        "17b5dc0",
+        "46ccefd",
+        "d1ecc0d"
+      ],
+      "files_modified": [
+        "bible-sources/",
+        "scripts/import.py",
+        "scripts/apply_d1.py"
+      ]
     },
     {
       "id": "task-05",
       "title": "Create Cloudflare D1 database + Pages project via API; connect GitHub auto-deploy; set up Actions workflow with auto-import of new/changed /bible-sources/ files on deploy",
-      "status": "in_progress",
-      "notes": "D1 + Pages + worker all provisioned and deploy workflow green (run 34057840534). Found+fixed a state-detection atomicity bug: a mid-import abort in the earlier failed run had already written versions.source_sha256 for AMP/CEV/GW/KJV/MSG before dying, so the change-detector then skipped them forever while their data was partial (CEV had 22,800/28,979 verses, 0 footnotes, 0 intros). Fix: apply_d1.py now holds the INSERT INTO versions statement back and applies it only after all data chunks succeed (verified locally: DELETEs first, versions row last, all statements preserved). Repair: delete versions rows via API so next deploy re-imports all 10 atomically. Pages direct-upload deployment succeeded (b9feba97).",
-      "commits": [],
-      "files_modified": []
+      "status": "done",
+      "notes": "All infra provisioned and LIVE: D1 database versewell-db (id in .d1_database_id), Worker versewell-api deployed via Cloudflare API and serving at https://versewell-api.vjumbo264.workers.dev, Pages project versewell serving https://versewell.pages.dev (HTTP 200). GitHub Actions workflow deploy.yml: on push to main + daily 02:17 UTC schedule -> apply_d1.py import (quota-aware) -> wrangler worker deploy -> wrangler pages deploy. Secrets CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID stored as GitHub Actions secrets. Full pipeline GREEN (run 34059918786). Fixes this session: (1) removed verses->versions FK (incompatible with versions-row-last atomic import; integrity enforced by pipeline; ensure_schema self-heals the legacy FK on the live table); (2) quota-aware import (exit 0 + notice on quota stop, incl. inside ensure_schema); (3) Pages deploy moved from hand-rolled direct-upload REST (silently broken: upload-token returned method_not_allowed, every deployment 500'd) to wrangler. NOTE: Pages project is direct-upload (no git source link) — auto-deploy happens via the Actions workflow step, which is the documented mechanism.",
+      "commits": [
+        "fad7f52",
+        "e350222",
+        "46ccefd",
+        "d1ecc0d",
+        "18a178b",
+        "6104af4",
+        "09c1cf2"
+      ],
+      "files_modified": [
+        "worker/wrangler.toml",
+        ".github/workflows/deploy.yml",
+        "scripts/deploy_pages.sh",
+        "scripts/apply_d1.py",
+        "schema.sql",
+        ".d1_database_id"
+      ]
     },
     {
       "id": "task-06",
       "title": "Run import for every source file; verify D1 row counts vs sources; spot-check known passage text/footnote/intro",
-      "status": "pending",
-      "notes": "",
+      "status": "in_progress",
+      "notes": "BLOCKED on D1 free-tier daily row-write quota (~100k rows/day/account, resets midnight UTC). Full import is ~293k verse rows + ~24k footnotes + 66 intros across 10 versions, so it spans ~3 days. As of 2026-09-06 21:00 UTC the day's quota is exhausted and 0 versions are fully imported. The daily scheduled workflow (02:17 UTC) resumes automatically; apply_d1.py skips completed versions via sha256. Next: let the scheduled runs complete the import over successive days, then verify counts vs sources (expected ~268,513 verses / 24,354 footnotes / 66 intros; CEV 28,979v/4,905f/66i) and spot-check CEV John 3 + a Genesis intro against the source file.",
       "commits": [],
       "files_modified": []
     },
     {
       "id": "task-07",
       "title": "Implement Worker API: all /api/v1/ endpoints, nested footnotes/intro, ?notes=false, search, random, status codes, parameterized SQL, validation, CORS *",
-      "status": "pending",
-      "notes": "",
-      "commits": [],
-      "files_modified": []
+      "status": "done",
+      "notes": "Worker API implemented (worker/index.js) and LIVE at https://versewell-api.vjumbo264.workers.dev. All /api/v1/ endpoints, nested intro/footnotes on chapter+verse, ?notes=false lean mode, LIKE search (limit 50), random verse, parameterized SQL, input validation, consistent {error:{code,message}} shape. Verified live on empty DB: /versions -> {\"versions\":[]}; /versions/KJV/books -> 404 {\"error\":{\"code\":\"not_found\",...}}; CORS Access-Control-Allow-Origin: * incl. OPTIONS preflight; Cache-Control public max-age=86400 on 200s. Full data-path verification pending the task-06 import.",
+      "commits": [
+        "e350222"
+      ],
+      "files_modified": [
+        "worker/index.js",
+        "worker/wrangler.toml"
+      ]
     },
     {
       "id": "task-08",
       "title": "Implement reading website (Home, Reader, Search, API docs) consuming the public API; intros as bordered blocks; footnotes as expandable per-verse markers; version switcher; chapter nav; dark/light mode",
-      "status": "pending",
-      "notes": "",
-      "commits": [],
-      "files_modified": []
+      "status": "done",
+      "notes": "Reading site implemented (site/: index.html, app.js, style.css) and LIVE at https://versewell.pages.dev (HTTP 200 verified). Hash-routed vanilla-JS SPA dogfooding the public API (API_BASE = the workers.dev URL). Home (version picker cards + OT/NT book grids), chapter picker, Reader (section intro as bordered block above its verse range; footnotes as tappable [n] markers that jump to a highlighted footnotes panel; prev/next chapter nav; version switcher while reading), Search (highlighted results), dark/light mode persisted in localStorage. Added graceful 'library is being stocked' empty state shown while the initial import is pending.",
+      "commits": [
+        "e350222",
+        "6104af4",
+        "7fa8c6c"
+      ],
+      "files_modified": [
+        "site/index.html",
+        "site/app.js",
+        "site/style.css"
+      ]
     },
     {
       "id": "task-09",
       "title": "Write API docs page content: every endpoint, params, example requests/responses, ?notes=false behavior",
-      "status": "pending",
-      "notes": "",
-      "commits": [],
-      "files_modified": []
+      "status": "done",
+      "notes": "API docs page implemented in site/app.js renderDocs() and live at https://versewell.pages.dev/#/docs: every endpoint, parameter table (version/book/chapter/verse/notes/q), four worked examples with real-shaped request+response JSON (incl. ?notes=false behavior and a search example), error-shape documentation, and fair-use note.",
+      "commits": [
+        "e350222",
+        "7fa8c6c"
+      ],
+      "files_modified": [
+        "site/app.js"
+      ]
     },
     {
       "id": "task-10",
       "title": "Write README: /bible-sources/ auto-import workflow (phone/browser friendly), API + site usage guide",
-      "status": "pending",
-      "notes": "",
-      "commits": [],
-      "files_modified": []
+      "status": "done",
+      "notes": "README.md written and pushed: website usage guide, API usage table + rules, the phone/browser-friendly add-a-version workflow (drop .sqlite3 into /bible-sources/ -> push -> deploy auto-imports, incl. the free-tier multi-day quota note), repo layout, and infrastructure summary (D1/Worker/Pages/Actions, secrets by name only).",
+      "commits": [
+        "9ce6f70"
+      ],
+      "files_modified": [
+        "README.md"
+      ]
     },
     {
       "id": "task-11",
       "title": "End-to-end live verification: versions list, chapter w/ real intro+footnotes, site rendering, search, add-one-more-version flow; then set build_complete=true",
       "status": "pending",
-      "notes": "",
+      "notes": "Pending the task-06 import completing (D1 quota-limited, daily auto-resume). Then: verify /api/v1/versions lists all imported versions; verify a CEV chapter (e.g. John 3) returns real intro + footnote data matching the source; verify the site renders it; verify search; then re-add voice.sqlite3 to /bible-sources/ and push to demonstrate the drop-file->deploy->live add-version flow end to end; only then set build_complete=true.",
       "commits": [],
       "files_modified": []
     }
@@ -144,6 +191,8 @@
       "reason": "Gives a genuine end-to-end demonstration of the auto-import mechanism using a real source file."
     }
   ],
-  "concerns_for_human_review": [],
-  "resume_from": "task-05/06: push atomicity fix; DELETE FROM versions via CF API to force clean re-import; confirm deploy run green; verify D1 counts == source counts (CEV 28,979v/4,905f/66i; totals ~268,513v / 24,354f / 66i); spot-check CEV John 3 + Gen intro; then task-07+ API/site live checks."
+  "concerns_for_human_review": [
+    "D1 free-tier daily row-write quota (~100k rows/day) means the initial 10-version import necessarily spans ~3 days. This is an infrastructure limit, not a bug; the daily scheduled workflow completes it automatically. If faster initial availability is wanted, the only lever is a paid D1 plan — flagged here because paid tiers require operator confirmation."
+  ],
+  "resume_from": "task-06 import, quota-gated: wait for the daily scheduled deploy workflow (02:17 UTC) to resume the D1 import after the midnight-UTC quota reset; repeat daily until apply_d1.py reports all 10 versions imported (~268,513 verses / 24,354 footnotes / 66 intros). Then run task-06 verification (counts + CEV John 3 / Genesis intro spot-check) and task-11 live checks, then re-add voice.sqlite3 to /bible-sources/ for the add-version demo."
 }
