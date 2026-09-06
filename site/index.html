@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VerseWell — Read the Bible</title>
+<meta name="description" content="VerseWell: a free public Bible reading site and open REST API, with section introductions and footnotes.">
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📖</text></svg>">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="#/">VerseWell</a>
+  <div class="topbar-right">
+    <select id="version-switcher" title="Bible version" aria-label="Bible version"></select>
+    <button id="theme-toggle" title="Toggle dark/light" aria-label="Toggle dark/light">◐</button>
+  </div>
+</header>
+<nav class="tabs">
+  <a href="#/" data-tab="home">Read</a>
+  <a href="#/search" data-tab="search">Search</a>
+  <a href="#/docs" data-tab="docs">API</a>
+</nav>
+<main id="view"><p class="muted loading">Loading…</p></main>
+<footer class="site-footer">
+  <p>VerseWell — a free, open Bible reading resource. Church-produced translations, shared with permission. <a href="#/docs">Developer API</a>.</p>
+</footer>
+<script src="app.js"></script>
+</body>
+</html>

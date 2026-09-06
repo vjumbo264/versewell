@@ -39,7 +39,9 @@ DB_ID = os.environ.get("D1_DATABASE_ID") or (
 )
 OUT_DIR = os.environ.get("IMPORT_OUT", "/tmp/versewell_import")
 STATE_FILE = os.environ.get("IMPORT_STATE", "/tmp/versewell_import/state.json")
-MAX_SQL_BYTES = 900_000  # stay safely under D1 /query body limits
+# D1 rejects oversized statements with SQLITE_TOOBIG; 90 KB per statement is
+# comfortably under its limit (900 KB chunks failed with HTTP 400 / 7500).
+MAX_SQL_BYTES = 90_000
 
 
 def d1_query(sql, params=None):
