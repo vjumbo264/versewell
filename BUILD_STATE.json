@@ -1,0 +1,115 @@
+{
+  "project": "VerseWell — public Bible REST API + reading website",
+  "repo": "https://github.com/vjumbo264/versewell",
+  "build_complete": false,
+  "last_updated_utc": "2026-09-06",
+  "stack": {
+    "database": "Cloudflare D1 (SQLite)",
+    "api": "Cloudflare Workers",
+    "site": "Cloudflare Pages (static, dogfoods the public API)",
+    "ci": "GitHub Actions",
+    "constraints": [
+      "Free tier only, end to end",
+      "No custom domain — production URLs are *.pages.dev and *.workers.dev",
+      "No user authentication anywhere",
+      "Operator works entirely from Android phone (Termux + browser dashboards) — no local CLI assumptions in docs"
+    ]
+  },
+  "source_data": {
+    "drive_folder": "https://drive.google.com/drive/folders/1DWkrc33kGOCTR0LFZhMzANFi_IryA5wn",
+    "note": "Church-produced Bible translations as .sqlite files. Redistribution rights confirmed by operator. Do NOT add non-church translations without flagging for operator confirmation."
+  },
+  "tasks": [
+    {
+      "id": "task-01",
+      "title": "Create public GitHub repo vjumbo264/versewell, seed BUILD_STATE.json, verify push",
+      "status": "in_progress",
+      "notes": "Repo created 2026-09-06 via GitHub API (public, default branch main). Seeding BUILD_STATE.json and pushing as push-access proof.",
+      "commits": [],
+      "files_modified": ["BUILD_STATE.json"]
+    },
+    {
+      "id": "task-02",
+      "title": "Inventory Drive folder .sqlite files; inspect each file's actual schema; document in ARCHITECTURE.md",
+      "status": "pending",
+      "notes": "",
+      "commits": [],
+      "files_modified": []
+    },
+    {
+      "id": "task-03",
+      "title": "Design + commit unified D1 schema (versions, verses, footnotes, section_intros); document source→unified mapping in ARCHITECTURE.md",
+      "status": "pending",
+      "notes": "",
+      "commits": [],
+      "files_modified": []
+    },
+    {
+      "id": "task-04",
+      "title": "Create /bible-sources/ folder, copy each .sqlite into it, build import/migration script (sqlite file → unified D1 schema, incl. footnotes + section_intros)",
+      "status": "pending",
+      "notes": "",
+      "commits": [],
+      "files_modified": []
+    },
+    {
+      "id": "task-05",
+      "title": "Create Cloudflare D1 database + Pages project via API; connect GitHub auto-deploy; set up Actions workflow with auto-import of new/changed /bible-sources/ files on deploy",
+      "status": "pending",
+      "notes": "",
+      "commits": [],
+      "files_modified": []
+    },
+    {
+      "id": "task-06",
+      "title": "Run import for every source file; verify D1 row counts vs sources; spot-check known passage text/footnote/intro",
+      "status": "pending",
+      "notes": "",
+      "commits": [],
+      "files_modified": []
+    },
+    {
+      "id": "task-07",
+      "title": "Implement Worker API: all /api/v1/ endpoints, nested footnotes/intro, ?notes=false, search, random, status codes, parameterized SQL, validation, CORS *",
+      "status": "pending",
+      "notes": "",
+      "commits": [],
+      "files_modified": []
+    },
+    {
+      "id": "task-08",
+      "title": "Implement reading website (Home, Reader, Search, API docs) consuming the public API; intros as bordered blocks; footnotes as expandable per-verse markers; version switcher; chapter nav; dark/light mode",
+      "status": "pending",
+      "notes": "",
+      "commits": [],
+      "files_modified": []
+    },
+    {
+      "id": "task-09",
+      "title": "Write API docs page content: every endpoint, params, example requests/responses, ?notes=false behavior",
+      "status": "pending",
+      "notes": "",
+      "commits": [],
+      "files_modified": []
+    },
+    {
+      "id": "task-10",
+      "title": "Write README: /bible-sources/ auto-import workflow (phone/browser friendly), API + site usage guide",
+      "status": "pending",
+      "notes": "",
+      "commits": [],
+      "files_modified": []
+    },
+    {
+      "id": "task-11",
+      "title": "End-to-end live verification: versions list, chapter w/ real intro+footnotes, site rendering, search, add-one-more-version flow; then set build_complete=true",
+      "status": "pending",
+      "notes": "",
+      "commits": [],
+      "files_modified": []
+    }
+  ],
+  "decisions": [],
+  "concerns_for_human_review": [],
+  "resume_from": "task-01: push this seed commit, verify on origin/main, then begin task-02 (Drive folder inventory)."
+}

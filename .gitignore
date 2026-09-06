@@ -1,0 +1,21 @@
+# Secrets — never commit credentials
+.env
+.env.*
+*.secret
+secrets.*
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
+
+# Node / build tooling
+node_modules/
+dist/
+.wrangler/
+.dev.vars
+
+# Python (import scripts)
+__pycache__/
+*.pyc
+.venv/
