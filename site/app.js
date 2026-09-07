@@ -5,7 +5,7 @@ const API_BASE = 'https://versewell-api.vjumbo264.workers.dev';
 const view = document.getElementById('view');
 const switcher = document.getElementById('version-switcher');
 
-const state = { versions: [], books: {}, defaultVersion: null };
+const state = { versions: [], books: {}, staticIndex: {}, defaultVersion: null };
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const encRef = (s) => encodeURIComponent(s);
 
@@ -44,8 +44,21 @@ async function fetchStatic(path) {
 
 async function loadVersions() {
   if (state.versions.length) return;
-  const data = await api('/api/v1/versions');
-  state.versions = data.versions;
+  let versions = [];
+  // Try the Worker API (D1) first. If it is unreachable OR currently reports
+  // zero versions (initial import still running), fall back to the same-origin
+  // static mirror so the homepage and Reader work regardless of D1 state.
+  try {
+    const data = await api('/api/v1/versions');
+    versions = data.versions || [];
+  } catch (e) { /* fall through to the static mirror */ }
+  if (!versions.length) {
+    try {
+      const data = await fetchStatic('/static-data/index.json');
+      versions = data.versions || [];
+    } catch (e) { /* both sources empty */ }
+  }
+  state.versions = versions;
   state.defaultVersion =
     localStorage.getItem('vw-version') ||
     (state.versions.find((v) => v.code === 'NIV2011') || state.versions[0] || {}).code;
@@ -72,10 +85,30 @@ switcher.addEventListener('change', () => {
 
 async function loadBooks(version) {
   if (!state.books[version]) {
-    const data = await api(`/api/v1/versions/${version}/books`);
-    state.books[version] = data.books;
+    let books = [];
+    try {
+      const data = await api(`/api/v1/versions/${version}/books`);
+      books = data.books || [];
+    } catch (e) { /* fall back to the static mirror */ }
+    if (!books.length) {
+      const data = await fetchStatic(`/static-data/${String(version).toLowerCase()}/index.json`);
+      books = data.books || [];
+    }
+    state.books[version] = books;
   }
   return state.books[version];
+}
+
+/* Per-version static index (books with slugs), cached in memory. */
+function loadStaticIndex(version) {
+  const v = String(version).toLowerCase();
+  if (!state.staticIndex[v]) {
+    state.staticIndex[v] = fetchStatic(`/static-data/${v}/index.json`).catch((e) => {
+      delete state.staticIndex[v]; // don't cache a failed fetch
+      throw e;
+    });
+  }
+  return state.staticIndex[v];
 }
 
 function setActiveTab(name) {
@@ -173,7 +206,18 @@ async function renderReader(version, bookParam, chapterStr) {
   // Prefer the quota-free static mirror (identical response shape to the
   // Worker API); fall back to the Worker API for anything not mirrored yet
   // (e.g. a version still mid D1 import, or any static miss).
-  const slug = String(bookParam).trim().toLowerCase().replace(/[\s_+]+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/-{2,}/g, '-').replace(/^-+|-+$/g, '');
+  let slug = String(bookParam).trim().toLowerCase().replace(/[\s_+]+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/-{2,}/g, '-').replace(/^-+|-+$/g, '');
+  // The static mirror uses full book-name slugs ('1-samuel'), while the URL
+  // carries the OSIS code ('1Sam'). Resolve the real slug via the per-version
+  // index so numbered books hit the static mirror instead of missing.
+  try {
+    const idx = await loadStaticIndex(version);
+    const p = decodeURIComponent(String(bookParam)).replace(/[-_+]/g, ' ').toLowerCase();
+    const match = (idx.books || []).find(
+      (b) => b.slug === slug || b.book.toLowerCase() === p || b.book_name.toLowerCase() === p
+    );
+    if (match && match.slug) slug = match.slug;
+  } catch (e) { /* keep the computed slug */ }
   let data;
   try {
     data = await fetchStatic(`/static-data/${String(version).toLowerCase()}/${slug}/${chapter}.json`);

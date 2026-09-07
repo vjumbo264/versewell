@@ -2,6 +2,18 @@
   "feature": "Static JSON mirror of Bible text, generated from /bible-sources/*.sqlite files, deployed as Pages static assets at /static-data/",
   "repo": "https://github.com/vjumbo264/versewell.git",
   "feature_complete": true,
+  "regression_investigation": {
+    "reported_utc": "2026-09-07",
+    "symptom": "Operator loads https://versewell.pages.dev/ in a real browser and sees the pre-static-mirror empty state ('The library is being stocked. No translations are live just yet.') — the copy that should ONLY appear when no data source at all is available.",
+    "root_cause": "Client-side Reader logic, NOT deployment. The static mirror itself was and is perfectly deployed: /static-data/index.json (10 versions) and /static-data/kjv/john/3.json both return HTTP 200 with content-type application/json, live, right now. The defect: app.js loadVersions() called ONLY the Worker API's /api/v1/versions and NEVER consulted /static-data/index.json. renderHome() then showed 'library is being stocked' whenever state.versions.length === 0 — i.e. whenever the API failed, hung, or reported an empty D1. The whole feature's purpose (content regardless of D1 import state) was wired only into the per-chapter Reader fetch, never into the top-level 'do we have any content' decision.",
+    "secondary_bug": "The Reader's static path computed its book slug from the URL param, which the app generates from the OSIS code ('1Sam' -> '1sam'). Static files use full book-name slugs ('1-samuel'). So numbered books (1/2 Samuel, Kings, Corinthians...) static-missed (Pages returns 200 + SPA shell for unknown paths) and fell through to the API — which 404s for any version not yet in D1. Fix: resolve the real slug via the per-version /static-data/{v}/index.json before fetching.",
+    "how_proven": "(1) curl of live homepage, /static-data/index.json, /static-data/kjv/john/3.json — all 200, correct content-types; mirror live. (2) diff of live app.js vs repo app.js — byte-identical, and Cloudflare Pages API shows the production deployment is at the latest origin/main commit, so no stale-deploy explanation. (3) Headless render of the live homepage showed it stuck at 'Loading...' — loadVersions() awaiting the Worker API with no fallback and no static consult. (4) Static slug check: /static-data/kjv/1sam/3.json returns 200 text/html (SPA shell), /static-data/kjv/1-samuel/3.json returns 200 application/json — proving the slug mismatch.",
+    "why_prior_verification_missed_it": "The prior session's verification table only tested direct chapter JSON URLs and direct Reader deep-links (static 200 vs API 404 for VOICE). It never loaded the actual homepage the way a user does and never exercised the top-level empty-state decision, which lived entirely in loadVersions()/renderHome() and only ever looked at the Worker API. A version that IS in D1 masks the bug completely on every page.",
+    "fix": "site/app.js: loadVersions() now falls back to /static-data/index.json when the Worker API fails OR returns zero versions; loadBooks() falls back to /static-data/{v}/index.json; renderReader() resolves the true static slug from the per-version index before fetching. Static shapes reuse API shapes so no rendering code changed.",
+    "regression_fixed": false,
+    "fix_commit": null,
+    "verification": null
+  },
   "last_updated_utc": "2026-09-07",
   "tasks": [
     {
