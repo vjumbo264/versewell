@@ -67,10 +67,14 @@
     {
       "id": "task-06",
       "title": "Confirm the static JSON tree is actually deployed and fetchable from the live Pages URL after a real deploy.",
-      "status": "pending",
-      "notes": "",
+      "status": "in_progress",
+      "notes": "FIRST DEPLOY MISSED THE TREE — diagnosed and fixed. The Pages deploy step runs `wrangler pages deploy site`, i.e. only the site/ directory is uploaded; the first commit placed the mirror at repo-root /static-data/, which was never deployed (live URLs returned the SPA fallback HTML; the updated app.js from the same deploy WAS live, proving the deploy itself worked). FIX: generator now writes site/static-data/; tree regenerated there (all 10 versions). VOICE demo tree also generated into site/static-data/voice/ from the STAGED bible-sources-staging/voice.sqlite3 via a temporary copy — voice.sqlite3 was NOT added to bible-sources/, so the original builds task-11 add-version demo staging is untouched and this triggered ZERO D1 writes. CI regeneration never deletes committed files, so the voice demo tree persists until task-11 properly adds voice.sqlite3 to bible-sources/.",
       "commits": [],
-      "files_modified": []
+      "files_modified": [
+        "scripts/generate_static.py",
+        "site/static-data/",
+        "ARCHITECTURE.md"
+      ]
     },
     {
       "id": "task-07",
@@ -107,5 +111,5 @@
   ],
   "decisions": [],
   "concerns_for_human_review": [],
-  "resume_from": "task-06/09: after push, verify live static-data/* fetchable on versewell.pages.dev, Reader renders, VOICE static N/A until added, D1/Worker pipeline unaffected; then set feature_complete:true."
+  "resume_from": "Push the site/static-data fix, wait for the deploy CI run, then re-run live verification (task-06 + task-09): JSON content-type on /static-data/*, 8-chapter static-vs-API parity, VOICE static 200 vs API 404, Reader renders, D1/Worker pipeline unchanged; then set feature_complete:true."
 }

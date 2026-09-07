@@ -209,7 +209,7 @@ GitHub Actions secrets / Cloudflare bindings, never in the repo.
 
 ## §7. Static JSON mirror (`/static-data/`)
 
-A **database-free** way to read the exact same Bible text. At build time a generator reads the same `/bible-sources/*.sqlite*` files the D1 importer reads and writes plain JSON into the repo; Cloudflare Pages serves them as static assets. No D1, no Worker, no API key, no rate limit — the answer to D1's free-tier daily row-write quota throttling new-version imports.
+A **database-free** way to read the exact same Bible text. At build time a generator reads the same `/bible-sources/*.sqlite*` files the D1 importer reads and writes plain JSON into the repo at `site/static-data/` (the Pages project deploys only the `site/` directory, so the mirror must live inside it); Cloudflare Pages serves them as static assets at the public `/static-data/...` URLs shown below. No D1, no Worker, no API key, no rate limit — the answer to D1's free-tier daily row-write quota throttling new-version imports.
 
 ### Directory layout
 ```

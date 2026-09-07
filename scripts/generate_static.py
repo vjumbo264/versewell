@@ -37,7 +37,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(HERE, ".."))
 SRC_DIR = os.path.join(ROOT, "bible-sources")
-OUT_DIR = os.path.join(ROOT, "static-data")
+OUT_DIR = os.path.join(ROOT, "site", "static-data")  # Pages deploys site/ only — mirror must live inside it
 SCHEMA = os.path.join(ROOT, "schema.sql")
 IMPORTER = os.path.join(HERE, "import.py")
 
