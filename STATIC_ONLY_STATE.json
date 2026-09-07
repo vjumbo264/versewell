@@ -81,7 +81,7 @@
       "id": "task-04",
       "title": "Fix the task-02 root cause: regenerate the canonical full index.json (all versions incl. VOICE) from /bible-sources/ and commit it; ensure homepage/site content check reflects the static index. Verify live that VOICE appears on the homepage.",
       "status": "done",
-      "notes": "Ran generate_static.py over all 11 sources in /bible-sources/; per-version trees were already byte-identical (0 files written each) \u2014 only index.json changed (1 file), adding VOICE. Canonical index.json now lists all 11 versions and is committed, so git == deploy. Live VOICE-on-homepage verification happens after this push deploys.",
+      "notes": "Ran generate_static.py over all 11 sources in /bible-sources/; per-version trees were already byte-identical (0 files written each) \u2014 only index.json changed (1 file), adding VOICE. Canonical index.json now lists all 11 versions and is committed, so git == deploy. Live VOICE-on-homepage verification happens after this push deploys. LIVE VERIFIED after deploy 064e777: /static-data/index.json now serves all 11 codes incl. VOICE; voice/index.json lists 66 books; voice/john/3.json 200 application/json. Homepage now lists VOICE.",
       "commits": [],
       "files_modified": [
         "site/static-data/index.json"
@@ -90,10 +90,13 @@
     {
       "id": "task-05",
       "title": "Add a CI-level consistency check: fail the build loudly if any .sqlite in /bible-sources/ has no corresponding static mirror entry (and report stale static dirs with no source).",
-      "status": "pending",
-      "notes": "",
+      "status": "done",
+      "notes": "Added scripts/check_static_consistency.py (fails build loudly on any source->index gap, dangling index entry, or stale/orphaned tree). Tested locally: PASS on clean 11-version state; FAILS correctly when a source is hidden (stale tree) and when a tree/index entry is removed (unmirrored source). Wired into deploy.yml after generate_static.py, before Pages deploy.",
       "commits": [],
-      "files_modified": []
+      "files_modified": [
+        "scripts/check_static_consistency.py",
+        ".github/workflows/deploy.yml"
+      ]
     },
     {
       "id": "task-06",

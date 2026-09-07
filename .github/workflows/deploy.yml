@@ -24,12 +24,19 @@ jobs:
       - name: Import new/changed Bible versions into D1
         run: python3 scripts/apply_d1.py
 
+      # Static JSON mirror is the source of truth; build it first so the Worker
+      # (which reads the static tree) and the consistency check see fresh data.
+      - name: Build static JSON mirror (quota-free)
+        run: python3 scripts/generate_static.py
+
+      # Fail loudly if any /bible-sources/*.sqlite has no static mirror entry
+      # (or a stale static tree has no source) — prevents silent discovery gaps.
+      - name: Verify static mirror consistency
+        run: python3 scripts/check_static_consistency.py
+
       - name: Deploy API worker
         working-directory: worker
         run: npx --yes wrangler@latest deploy
-
-      - name: Build static JSON mirror (quota-free)
-        run: python3 scripts/generate_static.py
 
       - name: Deploy reading site to Pages
         run: npx --yes wrangler@latest pages deploy site --project-name=versewell --branch=main
