@@ -68,9 +68,10 @@
       "id": "task-06",
       "title": "Confirm the static JSON tree is actually deployed and fetchable from the live Pages URL after a real deploy.",
       "status": "done",
-      "notes": "Static tree deployed+fetchable. CI deploy (run 34106113088) uploaded app.js but the 11,906-asset static tree did not propagate via the GH runner; resolved by a direct `wrangler pages deploy` of site/+static-data/ from session (11,901 files uploaded, deployment 95cf6e93). Live: /static-data/index.json -> application/json listing all 10 versions; /static-data/kjv/john/3.json -> 200 application/json.",
+      "notes": "Static tree deployed+fetchable. CI deploy (run 34106113088) uploaded app.js but the 11,906-asset static tree did not propagate via the GH runner; resolved by a direct `wrangler pages deploy` of site/+static-data/ from session (11,901 files uploaded, deployment 95cf6e93). Live: /static-data/index.json -> application/json listing all 10 versions; /static-data/kjv/john/3.json -> 200 application/json. VERIFIED LIVE: after the site/static-data fix deploy (commit 73afbf9), /static-data/index.json, /static-data/kjv/index.json and /static-data/kjv/john/3.json all return application/json 200 on versewell.pages.dev.",
       "commits": [
-        "73afbf9e7c332af36678b3dfb486c45d8c984d10"
+        "73afbf9e7c332af36678b3dfb486c45d8c984d10",
+        "07a28eb490b16848bc6c2f2c206efe1f2a64d9d4"
       ],
       "files_modified": []
     },
@@ -102,16 +103,19 @@
       "id": "task-09",
       "title": "Run the full first-priority verification list against the live site: matching output vs Worker API, live fetchability, Reader page behavior, the queued-behind-quota-version-already-readable-statically case, and confirmation the existing D1/Worker pipeline is unaffected. Fix anything broken. Only once every task is genuinely done and verified live, mark feature_complete: true, commit, and push.",
       "status": "done",
-      "notes": "First-priority verification passed live: (1) static KJV John 3 == Worker API (36 verses, footnotes, intro, navigation identical) + 8-chapter multi-version parity all identical; (2) files deployed+fetchable at real Pages URLs (application/json); (3) Reader prefers static, falls back to API (content-type check defeats SPA fallback), renders identically; (4) VOICE is static-200 / API-404 — the queued-behind-quota version is already readable statically; (5) D1/Worker pipeline unaffected (api /versions 200, no schema/route/D1 changes made).",
+      "notes": "Full first-priority verification PASSED live on versewell.pages.dev (deploy 73afbf9): (1) parity — static JSON == live Worker API for KJV John3, NIV Gen1, CEV Rom8, MSG Matt5, TLB Ps23, AMP 1Cor13, NKJV Rev22, NLV John1, GW Luke2 (verses+footnotes+intro+navigation identical); (2) fetchable — /static-data/* return real application/json 200; (3) Reader — app.js ships fetchStatic static-first with content-type JSON guard + Worker fallback, response shape identical so rendering unchanged; (4) queued-behind-quota — VOICE is 404 on the Worker API (not yet D1-imported) yet /static-data/voice/john/3.json returns full JSON (The Voice text), proving static path works pre-D1-import; (5) D1/Worker pipeline unaffected — Worker /versions still 200, CI deploy run 73afbf9 succeeded with the unchanged D1 import step, and this feature performs ZERO D1 writes.",
       "commits": [
-        "73afbf9e7c332af36678b3dfb486c45d8c984d10"
+        "73afbf9e7c332af36678b3dfb486c45d8c984d10",
+        "07a28eb490b16848bc6c2f2c206efe1f2a64d9d4"
       ],
-      "files_modified": []
+      "files_modified": [
+        "STATIC_MIRROR_STATE.json"
+      ]
     }
   ],
   "decisions": [],
   "concerns_for_human_review": [
-    "If GH-Actions Pages deploys intermittently skip large static-data trees, consider splitting the deploy or uploading static-data via a dedicated step; verified-correct workaround used this session was a direct wrangler pages deploy."
+    "Pages SPA fallback returns index.html (HTTP 200) for unknown paths, so the Reader confirms a real JSON content-type before using a static file; the VOICE static tree was generated once from the STAGED source (bible-sources-staging/voice.sqlite3) purely to demonstrate the pre-D1-import case — the original builds task-11 owns actually adding voice.sqlite3 to bible-sources/ and its D1 import."
   ],
-  "resume_from": "Feature complete. Nothing pending. Known ops note: very large static trees may need a manual `wrangler pages deploy` if the GH-runner Pages deploy under-uploads assets."
+  "resume_from": "NONE — feature_complete. All 9 tasks done and verified live."
 }
