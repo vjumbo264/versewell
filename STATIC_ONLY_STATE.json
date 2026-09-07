@@ -1,7 +1,7 @@
 {
   "migration": "VerseWell \u2014 Go Static-Only (Remove D1). Static JSON generated from /bible-sources/*.sqlite becomes the single, permanent source of truth for BOTH the website and the Worker API. No D1, no KV, no quota-limited/paid-tier storage anywhere.",
   "repo": "https://github.com/vjumbo264/versewell.git",
-  "migration_complete": false,
+  "migration_complete": true,
   "last_updated_utc": "2026-09-07",
   "ground_truth_verified_live": {
     "checked_utc": "2026-09-07",
@@ -149,13 +149,19 @@
     {
       "id": "task-10",
       "title": "Run the full First-Priority Verification list live (homepage content incl. VOICE; Worker shape parity; search; D1 deleted; no D1 cron/CI refs; end-to-end add-a-new-version demo). Fix anything broken. Only then set migration_complete: true, commit, push.",
-      "status": "pending",
-      "notes": "",
+      "status": "done",
+      "notes": "ALL SIX First-Priority Verification checks independently confirmed LIVE after deploy ad98f06f (post-push f935b2d): (1) homepage loads real content; static index + Worker /versions both serve all 11 incl VOICE. (2) Worker KJV john/3 == static tree byte-parity on all 7 core fields (36 verses); CEV john/1/5 has footnotes+intro, correct shape. (3) search q=love returns count 50, first result Gen 22:2 (matches pre-migration golden). (4) versewell-db confirmed DELETED via Cloudflare API (only unrelated forgehouse50-db/codex_db remain). (5) Worker schedules=[] and bindings=[] via API; no active D1/quota refs in repo source (remaining mentions are historical-statements only). (6) end-to-end add-version demo: removed voice.sqlite3 -> consistency check FAILED loudly (stale tree) proving the guard; re-added + pushed -> CI deployed -> VOICE live via Worker API (john/3, 35 verses) AND static tree (HTTP 200), zero manual steps, no quota/schedule.",
       "commits": [],
-      "files_modified": []
+      "files_modified": [
+        "bible-sources/voice.sqlite3 (remove+re-add demo)",
+        "site/app.js",
+        "STATIC_ONLY_STATE.json"
+      ]
     }
   ],
-  "decisions": [],
+  "decisions": [
+    "task-10: migration marked complete only after all six verification checks passed live post-deploy (Worker==static byte parity, VOICE end-to-end re-add via CI, D1 confirmed deleted, zero cron/bindings)."
+  ],
   "concerns_for_human_review": [],
-  "resume_from": "task-10: full First-Priority Verification (6 checks) then set migration_complete."
+  "resume_from": "NONE - migration_complete true, verified live 2026-09-07."
 }
