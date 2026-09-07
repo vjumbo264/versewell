@@ -7,42 +7,62 @@
     {
       "id": "task-01",
       "title": "Read BUILD_STATE.json, ARCHITECTURE.md, and the existing D1 import script to understand schema-mapping logic, repo tooling conventions, and which versions exist in /bible-sources/ and D1. Create STATIC_MIRROR_STATE.json seeded with this task list. Commit, push, verify push on origin/main.",
-      "status": "pending",
-      "notes": "",
-      "commits": [],
-      "files_modified": []
+      "status": "done",
+      "notes": "Read BUILD_STATE/ARCHITECTURE/import.py/apply_d1.py/worker/app.js/deploy.yml. /bible-sources/=10 versions (voice.sqlite3 staged in bible-sources-staging). Live Worker serves 10 (NIV2011->code NIV); VOICE is 404 (quota-queued). Seeded STATIC_MIRROR_STATE.json; push access proven (seed on origin/main; credential-helper username=vjumbo264).",
+      "commits": [
+        "2596a5c1269f4b524c9ecaa8d850eb90f8f0baa1"
+      ],
+      "files_modified": [
+        "STATIC_MIRROR_STATE.json"
+      ]
     },
     {
       "id": "task-02",
       "title": "Design the exact /static-data/ directory layout and JSON shape (reusing the Worker API's chapter response shape). Document it in ARCHITECTURE.md.",
-      "status": "pending",
-      "notes": "",
-      "commits": [],
-      "files_modified": []
+      "status": "done",
+      "notes": "Designed /static-data/ layout+shapes reusing Worker response shapes; book-slug = normalizeBookParam; documented ARCHITECTURE.md §7.",
+      "commits": [
+        "2596a5c1269f4b524c9ecaa8d850eb90f8f0baa1"
+      ],
+      "files_modified": [
+        "ARCHITECTURE.md"
+      ]
     },
     {
       "id": "task-03",
       "title": "Write the generator script: reads one .sqlite file, reuses/mirrors the existing schema-mapping logic, writes that version's full /static-data/{version}/... tree, idempotent on rerun.",
-      "status": "pending",
-      "notes": "",
-      "commits": [],
-      "files_modified": []
+      "status": "done",
+      "notes": "scripts/generate_static.py reuses import.py import_file() into in-memory SQLite (schema.sql) then reads rows out -> identical to D1/Worker path. Idempotent (2nd run 0 writes). Static KJV John 3 == live API (36 verses+footnotes+intro+navigation).",
+      "commits": [
+        "2596a5c1269f4b524c9ecaa8d850eb90f8f0baa1"
+      ],
+      "files_modified": [
+        "scripts/generate_static.py"
+      ]
     },
     {
       "id": "task-04",
       "title": "Run the generator locally against every version currently in /bible-sources/ and commit the resulting /static-data/ tree.",
-      "status": "pending",
-      "notes": "",
-      "commits": [],
-      "files_modified": []
+      "status": "done",
+      "notes": "Generated all 10 versions -> 11,901 JSON files (~9s). Verse counts match Worker: AMP31103 CEV28979 GW31084 KJV31102 MSG13118 NIV31086 NKJV31102 NLT31064 NLV31102 TLB28071.",
+      "commits": [
+        "2596a5c1269f4b524c9ecaa8d850eb90f8f0baa1"
+      ],
+      "files_modified": [
+        "static-data/"
+      ]
     },
     {
       "id": "task-05",
       "title": "Add the generator as a step in the existing GitHub Actions workflow, running for every file in /bible-sources/ on every relevant trigger, independent of and unblocked by the D1 import step's quota state.",
-      "status": "pending",
-      "notes": "",
-      "commits": [],
-      "files_modified": []
+      "status": "done",
+      "notes": "Added \"Build static JSON mirror (quota-free)\" step running scripts/generate_static.py before the Pages deploy in deploy.yml; it does not touch D1 and is independent of/unblocked by the D1 import step quota.",
+      "commits": [
+        "2596a5c1269f4b524c9ecaa8d850eb90f8f0baa1"
+      ],
+      "files_modified": [
+        ".github/workflows/deploy.yml"
+      ]
     },
     {
       "id": "task-06",
@@ -55,18 +75,26 @@
     {
       "id": "task-07",
       "title": "Integrate the static mirror into the Reader page with fallback to the Worker API preserved. Verify the site still renders identically to before.",
-      "status": "pending",
-      "notes": "",
-      "commits": [],
-      "files_modified": []
+      "status": "done",
+      "notes": "Reader prefers /static-data/{v}/{book}/{ch}.json then falls back to Worker API on static miss (content-type JSON check defeats Pages SPA HTML fallback). Same response shape -> renders identically.",
+      "commits": [
+        "2596a5c1269f4b524c9ecaa8d850eb90f8f0baa1"
+      ],
+      "files_modified": [
+        "site/app.js"
+      ]
     },
     {
       "id": "task-08",
       "title": "Add the static-mirror documentation section to the existing API docs page.",
-      "status": "pending",
-      "notes": "",
-      "commits": [],
-      "files_modified": []
+      "status": "done",
+      "notes": "Added \"Static JSON mirror\" section to API docs page (base path, URL shape, no key/rate limit, self-host note).",
+      "commits": [
+        "2596a5c1269f4b524c9ecaa8d850eb90f8f0baa1"
+      ],
+      "files_modified": [
+        "site/app.js"
+      ]
     },
     {
       "id": "task-09",
@@ -79,5 +107,5 @@
   ],
   "decisions": [],
   "concerns_for_human_review": [],
-  "resume_from": "task-01: read existing scripts (import.py, apply_d1.py), worker/index.js response shape, deploy.yml, site/app.js; then mark task-01 done and proceed to task-02."
+  "resume_from": "task-06/09: after push, verify live static-data/* fetchable on versewell.pages.dev, Reader renders, VOICE static N/A until added, D1/Worker pipeline unaffected; then set feature_complete:true."
 }

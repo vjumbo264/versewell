@@ -204,3 +204,23 @@ calls only the public API — no special backend access.
 
 Names of secrets/resources are documented; secret **values** live only in
 GitHub Actions secrets / Cloudflare bindings, never in the repo.
+
+---
+
+## §7. Static JSON mirror (`/static-data/`)
+
+A **database-free** way to read the exact same Bible text. At build time a generator reads the same `/bible-sources/*.sqlite*` files the D1 importer reads and writes plain JSON into the repo; Cloudflare Pages serves them as static assets. No D1, no Worker, no API key, no rate limit — the answer to D1's free-tier daily row-write quota throttling new-version imports.
+
+### Directory layout
+```
+/static-data/
+  index.json                  <- {"versions":[...]}  (same fields as GET /api/v1/versions)
+  {version}/                  <- lowercase version code, e.g. kjv
+    index.json                <- {"version","name","books":[...]} (as GET /versions/{v}/books, plus a "slug" per book)
+    {book-slug}/              <- e.g. john
+      {chapter}.json          <- e.g. 3.json (as GET /versions/{v}/{book}/{chapter})
+```
+### URL / book-slug rule
+`{book-slug}` = the book's `book_name` lowercased, spaces/`_`/`+`/punctuation collapsed to single `-` (e.g. `1-samuel`) — exactly the Worker API's `normalizeBookParam`, so `/static-data/kjv/1-samuel/3.json` and `/api/v1/versions/KJV/1 Samuel/3` address the same chapter. Collisions / reserved words (`books|search|random|index`) are de-duplicated with a numeric suffix; the authoritative slug per book is in that version's `index.json`.
+### Shape parity & generator
+Each `{chapter}.json` is the Worker chapter response verbatim (`version, book, book_name, chapter, intro, verses[], navigation`); indexes mirror `/versions` and `/versions/{v}/books`. `scripts/generate_static.py` reuses `scripts/import.py`'s real `import_file()` against an in-memory SQLite DB shaped by `schema.sql`, so output is byte-for-byte identical to the D1/Worker path (verified: static KJV John 3 == live API, 36 verses + navigation). Idempotent: files are only rewritten on content change (verified: 2nd run = 0 writes). A new version dropped into `/bible-sources/` is readable via this path on the very next Pages deploy, independent of its D1 import state.

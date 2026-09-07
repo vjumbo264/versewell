@@ -32,6 +32,16 @@ async function api(path) {
   return data;
 }
 
+/* Static mirror (same origin). Pages serves index.html for any unknown path
+ * (SPA fallback), so a missing static file returns HTTP 200 HTML — we must
+ * confirm a real JSON body, not just a 2xx status. */
+async function fetchStatic(path) {
+  const res = await fetch(path);
+  const ct = (res.headers.get('content-type') || '').toLowerCase();
+  if (!res.ok || !ct.includes('application/json')) throw new Error('static miss');
+  return res.json();
+}
+
 async function loadVersions() {
   if (state.versions.length) return;
   const data = await api('/api/v1/versions');
@@ -160,7 +170,16 @@ async function renderReader(version, bookParam, chapterStr) {
   }
   view.innerHTML = `<p class="muted loading">Loading ${esc(bookParam)} ${chapter}…</p>`;
 
-  const data = await api(`/api/v1/versions/${version}/${encRef(bookParam)}/${chapter}`);
+  // Prefer the quota-free static mirror (identical response shape to the
+  // Worker API); fall back to the Worker API for anything not mirrored yet
+  // (e.g. a version still mid D1 import, or any static miss).
+  const slug = String(bookParam).trim().toLowerCase().replace(/[\s_+]+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/-{2,}/g, '-').replace(/^-+|-+$/g, '');
+  let data;
+  try {
+    data = await fetchStatic(`/static-data/${String(version).toLowerCase()}/${slug}/${chapter}.json`);
+  } catch (e) {
+    data = await api(`/api/v1/versions/${version}/${encRef(bookParam)}/${chapter}`);
+  }
 
   const intro = data.intro
     ? `<div class="section-intro"><span class="intro-label">Introduction · ${esc(data.book_name)}</span>${esc(data.intro.text)}</div>`
@@ -265,6 +284,7 @@ async function renderSearch(params) {
 function renderDocs() {
   setActiveTab('docs');
   const base = API_BASE;
+  const origin = location.origin;
   view.innerHTML = `
   <h1>VerseWell API</h1>
   <p class="lede">A free, open, read-only REST API for every Bible version on VerseWell — the same API this website uses.
@@ -333,6 +353,21 @@ function renderDocs() {
   <div class="doc-endpoint">
     <span class="method">GET</span><span class="path">/api/v1/versions/NIV2011/search?q=light</span>
     <pre>curl "${base}/api/v1/versions/NIV2011/search?q=light"</pre>
+  </section>
+
+  <section class="doc-block">
+    <h2>Static JSON mirror</h2>
+    <p>Every chapter is also published as a plain static JSON file under <code>/static-data/</code> on this same Pages origin — <strong>no API key, no rate limit, no database</strong>. It is a byte-for-byte mirror of the API's responses, generated straight from the source files at build time. Useful for self-hosting, bulk download, caching, or reading a version that hasn't finished importing into the API's database yet.</p>
+    <pre># all versions
+curl ${origin}/static-data/index.json
+# one version's books/chapters
+curl ${origin}/static-data/kjv/index.json
+# a full chapter (same JSON shape as the API's chapter response)
+curl ${origin}/static-data/kjv/john/3.json</pre>
+    <p>The <code>{book}</code> segment is the book name lowercased with spaces as hyphens (e.g. <code>1-samuel</code>); each version's <code>index.json</code> lists every book's exact <code>slug</code>. Files are served with permissive CORS and long cache headers like the rest of the site.</p>
+  </section>
+
+  <section class="doc-block">
     <pre>{
   "version": "NIV2011", "query": "light", "count": 50, "limit": 50,
   "results": [
