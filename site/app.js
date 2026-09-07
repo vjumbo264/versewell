@@ -210,9 +210,9 @@ async function renderReader(version, bookParam, chapterStr) {
   }
   view.innerHTML = `<p class="muted loading">Loading ${esc(bookParam)} ${chapter}…</p>`;
 
-  // Prefer the quota-free static mirror (identical response shape to the
+  // Prefer the static JSON tree (identical response shape to the API);
   // Worker API); fall back to the Worker API for anything not mirrored yet
-  // (e.g. a version still mid D1 import, or any static miss).
+  // fall back to the Worker API on any static miss.
   let slug = String(bookParam).trim().toLowerCase().replace(/[\s_+]+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/-{2,}/g, '-').replace(/^-+|-+$/g, '');
   // The static mirror uses full book-name slugs ('1-samuel'), while the URL
   // carries the OSIS code ('1Sam'). Resolve the real slug via the per-version
