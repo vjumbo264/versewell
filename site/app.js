@@ -53,9 +53,9 @@ async function fetchStatic(path) {
 async function loadVersions() {
   if (state.versions.length) return;
   let versions = [];
-  // Try the Worker API (D1) first. If it is unreachable OR currently reports
-  // zero versions (initial import still running), fall back to the same-origin
-  // static mirror so the homepage and Reader work regardless of D1 state.
+  // Try the Worker API first. If it is unreachable OR reports zero versions,
+  // fall back to the same-origin static JSON tree (the single source of
+  // truth), so the homepage and Reader always reflect real content.
   try {
     const data = await api('/api/v1/versions');
     versions = data.versions || [];
@@ -138,9 +138,8 @@ async function renderHome(params) {
       <p class="lede">The library is being stocked.</p>
       <div class="error-box" style="border-color: var(--accent); background: var(--bg-soft, transparent)">
         <strong>No translations are live just yet.</strong><br>
-        The initial import of the church's Bible translations into the database is in progress
-        (free-tier databases process it in daily batches). Please check back soon —
-        new versions appear automatically as each one finishes importing.
+        The library is being stocked. Please check back soon —
+        new versions appear automatically as soon as they are published.
       </div>`;
     return;
   }
@@ -409,7 +408,7 @@ function renderDocs() {
 
   <section class="doc-block">
     <h2>Static JSON mirror</h2>
-    <p>Every chapter is also published as a plain static JSON file under <code>/static-data/</code> on this same Pages origin — <strong>no API key, no rate limit, no database</strong>. It is a byte-for-byte mirror of the API's responses, generated straight from the source files at build time. Useful for self-hosting, bulk download, caching, or reading a version that hasn't finished importing into the API's database yet.</p>
+    <p>This API is backed entirely by a plain static JSON tree under <code>/static-data/</code> on this same Pages origin — <strong>no API key, no rate limit, no database</strong>. That tree is the single source of truth for every response above: the Worker simply fetches those files and re-shapes them per route, so the API and these files are always the same bytes. Useful for self-hosting, bulk download, caching, or reading the raw data directly.</p>
     <pre># all versions
 curl ${origin}/static-data/index.json
 # one version's books/chapters
@@ -439,7 +438,7 @@ HTTP 400
 { "error": { "code": "bad_request", "message": "Invalid chapter 'abc'." } }</pre>
 
   <h2>Fair use</h2>
-  <p class="muted">This is a free public reference API running on free-tier infrastructure. There are no keys or hard limits;
+  <p class="muted">This is a free public reference API backed entirely by static files — there is no database and no usage limit of any kind. There are no keys;
   please be reasonable — cache responses where you can, and don't hammer it. The translations remain the property of their
   respective holders and are shared here with permission.</p>`;
 }

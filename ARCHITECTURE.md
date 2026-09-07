@@ -1,18 +1,24 @@
 # VerseWell — Architecture
 
-VerseWell is a public Bible platform with two read-only faces over one shared
-Cloudflare D1 database:
+VerseWell is a public Bible platform with two read-only faces over **one shared
+source of truth: the static JSON tree** generated from the source `.sqlite`
+files and served by Cloudflare Pages:
 
-1. **REST API** (Cloudflare Worker) — `/api/v1/*`
-2. **Reading website** (Cloudflare Pages, static) — dogfoods the public API
+1. **REST API** (Cloudflare Worker) — `/api/v1/*` — a thin read-only layer that
+   fetches the static JSON files at request time and re-shapes them per route.
+2. **Reading website** (Cloudflare Pages, static) — dogfoods the public API and
+   the static tree directly.
 
-No authentication, no accounts, no per-user state. Free tier only.
+There is **no database, no KV, and no quota-limited / paid-tier storage service
+anywhere in this architecture**. The static JSON files under `site/static-data/`
+are the single, permanent source of truth for both the website and the Worker
+API. No authentication, no accounts, no per-user state. Free tier only.
 Production URLs: `https://versewell-api.<subdomain>.workers.dev` (API) and
 `https://versewell.pages.dev` (site).
 
 ---
 
-## 1. Source data inventory (task-02)
+## 1. Source data inventory
 
 Source: Google Drive folder `1DWkrc33kGOCTR0LFZhMzANFi_IryA5wn`
 (fetched via public `embeddedfolderview` listing + `uc?export=download&id=` links —
@@ -44,107 +50,60 @@ logical layout (an And Bible / bible-app style export), with per-file quirks:
   `verse` is a float `chapter + verse/1000` (e.g. `1.001` = ch 1 v 1,
   `22.021` = ch 22 v 21). `unformatted` is plain verse text, sometimes with a
   leading section heading followed by `\n` (e.g. `"The Creation\nIn the
-  beginning…"`). Importer must strip a leading heading line.
+  beginning…"`). The generator strips a leading heading line.
 - `annotations(id PK, osis, link, content)` — footnotes and cross-references
-  as HTML snippets (see §3).
+  as HTML snippets (see §2).
 - `chapters(id PK, reference_osis, reference_human, content, prev/next…)` —
   full-chapter HTML **plus, in CEV only, `Xxx.int` rows holding book-level
-  introductions**. We do not import the chapter HTML; we import only the
-  `.int` intro content (HTML stripped to text).
+  introductions**. We do not keep the chapter HTML; we keep only the `.int`
+  intro content (HTML stripped to text).
 - `metadata(id PK, name, value)` — `name` (code), `fullname`, `date`,
-  sometimes `copyright`, `url`, `css`. Used to populate `versions`.
+  sometimes `copyright`, `url`, `css`. Used to populate the version index.
 - `android_metadata` — irrelevant.
 
-### Per-file quirks found (task-02 verification)
+### Per-file quirks found
 
 1. **CEV chapter offset.** `verses.verse` is shifted **+1 chapter** in CEV
    (no chapter 1; Genesis runs 2.001–51.xxx, John to 22.xxx, Revelation to
    23.xxx). Verified: CEV `John 4.016` = the John 3:16 text
-   ("God loved the people of this world so much…"). Importer subtracts 1 from
-   the chapter for CEV. CEV footnote/crossref `verse_id`s (`Gen.1.1!f.1`)
+   ("God loved the people of this world so much…"). The generator subtracts 1
+   from the chapter for CEV. CEV footnote/crossref `verse_id`s (`Gen.1.1!f.1`)
    are **already in true reference space** — no shift applied to annotations.
 2. **MSG merged verses.** `msg` has only 13,118 rows; consecutive verses are
    merged into single rows keyed by the first verse (e.g. Gen 1 has verses
-   1, 3, 6, 9, 11…). Handled naturally by the schema; consumers must not
-   assume contiguous verse numbers.
+   1, 3, 6, 9, 11…). Handled naturally; consumers must not assume contiguous
+   verse numbers.
 3. **Annotation styles** (`link` column):
    - `fen-XXX-{n}{letter}` (AMP, GW, NIV, NKJV, NLT, NLV, TLB, VOICE) —
-     footnote; `n` is a **global per-book verse counter** (verified: AMP
-     Gen 2:4 → `fen-AMP-35a`, i.e. 34 verses in Gen 1 + verse 4 of Gen 2).
-     The authoritative target reference is inside `content` HTML:
-     `title="Go to Book C:V"`. Prefix `cen-` = cross-reference, `fen-` =
-     footnote. Only `fen-` imported as footnotes; `cen-` skipped.
+     footnote; `n` is a **global per-book verse counter**. The authoritative
+     target reference is inside `content` HTML: `title="Go to Book C:V"`.
+     Prefix `cen-` = cross-reference, `fen-` = footnote. Only `fen-` kept as
+     footnotes; `cen-` skipped.
    - `Book.C.V!f.N` USFM style (CEV, KJV, MSG) — `!f.` = footnote,
      `!x.` = cross-reference (skipped). Target verse is in the link itself.
 4. **Leading section headings** in `verses.unformatted` (AMP `"The
-   Creation\n…"`, GW, NIV `"The Beginning\n…"`, NKJV, NLT, NLV). Importer
+   Creation\n…"`, GW, NIV `"The Beginning\n…"`, NKJV, NLT, NLV). The generator
    strips a leading heading line when the verse is the first of a chapter or
-   the heading pattern is detected (short first line followed by `\n`).
-   Headings are not currently exposed separately; that is a possible future
-   enhancement (recorded in BUILD_STATE decisions).
+   the heading pattern is detected. Headings are not currently exposed
+   separately; that is a possible future enhancement.
 
 ---
 
-## 2. Unified D1 schema (task-03)
+## 2. Normalized shape (in-memory `schema.sql`)
 
-One schema fits every version; footnote/intro tables are simply empty for
-versions lacking them. File: [`schema.sql`](schema.sql).
+At build time the generator opens each `.sqlite` source and normalizes it into
+an **in-memory** SQLite database shaped by [`schema.sql`](schema.sql), purely
+as an intermediate representation. **No live database is ever created or
+queried at runtime.** One schema fits every version; footnote/intro tables are
+simply empty for versions lacking them. The generator then walks this in-memory
+DB and writes plain JSON files to `site/static-data/`.
 
-```sql
-CREATE TABLE IF NOT EXISTS versions (
-  code        TEXT PRIMARY KEY,      -- e.g. 'AMP', 'NIV2011' (uppercased, unique per file)
-  name        TEXT NOT NULL,         -- display name from metadata.fullname
-  language    TEXT NOT NULL DEFAULT 'en',
-  description TEXT,                  -- copyright/attribution text if present
-  has_footnotes INTEGER NOT NULL DEFAULT 0,
-  has_intros    INTEGER NOT NULL DEFAULT 0,
-  source_file   TEXT NOT NULL,       -- filename in /bible-sources/
-  source_sha256 TEXT NOT NULL,       -- change detection for re-import
-  verse_count   INTEGER NOT NULL DEFAULT 0,
-  imported_at   TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS verses (
-  version TEXT NOT NULL REFERENCES versions(code),
-  book    TEXT NOT NULL,             -- OSIS code, e.g. 'Gen'
-  book_name TEXT NOT NULL,           -- human name, e.g. 'Genesis'
-  book_order INTEGER NOT NULL,       -- 1..66 for sorting
-  chapter INTEGER NOT NULL,
-  verse   INTEGER NOT NULL,
-  text    TEXT NOT NULL,
-  PRIMARY KEY (version, book, chapter, verse)
-);
-
-CREATE TABLE IF NOT EXISTS footnotes (
-  version TEXT NOT NULL,
-  book    TEXT NOT NULL,
-  chapter INTEGER NOT NULL,
-  verse   INTEGER NOT NULL,
-  marker  TEXT,                      -- e.g. 'a', 'b' or '1' — source ordering hint
-  note_text TEXT NOT NULL,           -- HTML stripped to readable text (inline refs kept as text)
-  PRIMARY KEY (version, book, chapter, verse, marker)
-);
-
-CREATE TABLE IF NOT EXISTS section_intros (
-  version   TEXT NOT NULL,
-  book      TEXT NOT NULL,
-  chapter   INTEGER NOT NULL,        -- chapter where the intro is displayed (1 for book intros)
-  start_verse INTEGER NOT NULL,
-  end_verse   INTEGER NOT NULL,
-  intro_text TEXT NOT NULL,
-  PRIMARY KEY (version, book, chapter, start_verse)
-);
-
-CREATE INDEX IF NOT EXISTS idx_verses_lookup ON verses(version, book, chapter, verse);
-CREATE INDEX IF NOT EXISTS idx_footnotes_lookup ON footnotes(version, book, chapter, verse);
-CREATE INDEX IF NOT EXISTS idx_intros_lookup ON section_intros(version, book, chapter);
-```
-
-### Source → unified mapping
+`schema.sql` defines four tables — `versions`, `verses`, `footnotes`,
+`section_intros` — used only to structure the generator's in-memory model:
 
 | unified | source |
 |---|---|
-| `versions.code` | `metadata.name` uppercased (`niv2011` → `NIV2011`, `voice` → `VOICE`, `msg` → `MSG`) |
+| `versions.code` | `metadata.name` uppercased (`niv2011` → `NIV2011` → served as `NIV`, `voice` → `VOICE`, `msg` → `MSG`) |
 | `versions.name` | `metadata.fullname` |
 | `versions.description` | `metadata.copyright` (HTML stripped), if present |
 | `versions.has_footnotes` | count of footnote-type annotations > 0 |
@@ -155,17 +114,24 @@ CREATE INDEX IF NOT EXISTS idx_intros_lookup ON section_intros(version, book, ch
 
 ---
 
-## 3. Version-add workflow (auto-discovery)
+## 3. Version-add workflow (auto-discovery, static-only)
 
-- `/bible-sources/<code>.sqlite3` — one file per version, committed to the
-  repo. (`msg.sqlite3.db` is stored as `msg.sqlite3` for consistency.)
-- The importer (`scripts/import.py`) computes each file's SHA-256 and
-  compares it to `versions.source_sha256` in D1: **new or changed files are
-  (re)imported; unchanged files are skipped** — so deploys are incremental
-  and a new version goes live by dropping one file into the folder and
-  pushing. No code changes, no manual D1 work.
-- GitHub Actions (`deploy.yml`) runs the importer against remote D1 via the
-  Cloudflare API on every push that touches `bible-sources/` or the app code.
+The **entire** process to publish a new version live everywhere:
+
+1. Drop `<code>.sqlite3` into [`/bible-sources/`](bible-sources/).
+2. Push to `main`.
+
+That's it. No manual steps, no import job, no quota, no waiting.
+
+GitHub Actions (`deploy.yml`) then runs `scripts/generate_static.py`, which
+scans `/bible-sources/`, normalizes each file in memory, and regenerates the
+static JSON tree in `site/static-data/` (idempotent — only changed files are
+rewritten). It then runs `scripts/check_static_consistency.py`, which **fails
+the build loudly** if any source file has no corresponding static entry (or
+any stale static tree has no source), so a silent discovery/indexing gap can
+never ship unnoticed. Finally it deploys the Worker and the Pages site.
+
+---
 
 ## 4. API surface (Worker, `/api/v1/`)
 
@@ -182,7 +148,19 @@ GET /api/v1/versions/:version/random
 Chapter/verse responses embed `intro` (when a section intro covers them) and
 per-verse `footnotes`; `?notes=false` omits them. CORS `*`, JSON error shape
 `{"error": {"code", "message"}}`, `Cache-Control: public, max-age=86400` on
-successful reads. SQL is parameterized throughout; search uses `LIKE`.
+successful reads.
+
+**How the Worker reads data (static-only, task-06):** the canonical static
+tree lives on the Pages origin (`https://versewell.pages.dev/static-data/`),
+the only copy of the data. The Worker fetches the specific JSON file(s) it
+needs per request and caches parsed bodies **in-isolate** with a short TTL
+(plus Cloudflare edge cache), so warm isolates serve repeat reads with zero
+extra network hops. This keeps the Worker free-tier friendly — the ~60 MB
+tree cannot be bundled into a Worker asset bundle — and guarantees the API
+and the website read the **same bytes**. Search (`?q=`) is a static text scan
+over a generator-emitted compact per-version `search.json`, so a query costs
+**one** fetch, not one-per-chapter (which would exceed the Workers free-tier
+subrequest limit). There is no SQL, no `LIKE`, no database.
 
 ## 5. Website (Pages, static)
 
@@ -191,25 +169,31 @@ Vanilla HTML/CSS/JS (no framework, no build step) in `/site/`. Pages: Home
 — intros as bordered blocks, footnotes as tappable superscript markers with an
 expandable panel, prev/next chapter, version switcher), Search, API Docs
 (`#/docs`). Dark/light mode via `prefers-color-scheme` + toggle. The site
-calls only the public API — no special backend access.
+reads the same static tree (and the public API) — no special backend access.
 
 ## 6. Infrastructure
 
 | resource | name | created via |
 |---|---|---|
-| D1 database | `versewell-db` | Cloudflare API |
 | Worker | `versewell-api` | Cloudflare API + GitHub Actions |
 | Pages project | `versewell` | Cloudflare API (Direct Upload via Actions) |
 | GitHub secrets | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` | GitHub API |
 
-Names of secrets/resources are documented; secret **values** live only in
-GitHub Actions secrets / Cloudflare bindings, never in the repo.
+There is **no database resource** — the previous Cloudflare D1 database
+(`versewell-db`) was deleted during the static-only migration. Names of
+secrets/resources are documented; secret **values** live only in GitHub
+Actions secrets, never in the repo.
 
 ---
 
-## §7. Static JSON mirror (`/static-data/`)
+## §7. Static JSON tree (`/static-data/`)
 
-A **database-free** way to read the exact same Bible text. At build time a generator reads the same `/bible-sources/*.sqlite*` files the D1 importer reads and writes plain JSON into the repo at `site/static-data/` (the Pages project deploys only the `site/` directory, so the mirror must live inside it); Cloudflare Pages serves them as static assets at the public `/static-data/...` URLs shown below. No D1, no Worker, no API key, no rate limit — the answer to D1's free-tier daily row-write quota throttling new-version imports.
+The **single source of truth** for all Bible content. At build time the
+generator reads the `/bible-sources/*.sqlite*` files and writes plain JSON
+into the repo at `site/static-data/` (the Pages project deploys only the
+`site/` directory); Cloudflare Pages serves them as static assets at the
+public `/static-data/...` URLs shown below. No database, no Worker compute for
+direct access, no API key, no rate limit.
 
 ### Directory layout
 ```
@@ -217,10 +201,24 @@ A **database-free** way to read the exact same Bible text. At build time a gener
   index.json                  <- {"versions":[...]}  (same fields as GET /api/v1/versions)
   {version}/                  <- lowercase version code, e.g. kjv
     index.json                <- {"version","name","books":[...]} (as GET /versions/{v}/books, plus a "slug" per book)
+    search.json               <- compact per-version verse index used for ?q= search
     {book-slug}/              <- e.g. john
       {chapter}.json          <- e.g. 3.json (as GET /versions/{v}/{book}/{chapter})
 ```
 ### URL / book-slug rule
-`{book-slug}` = the book's `book_name` lowercased, spaces/`_`/`+`/punctuation collapsed to single `-` (e.g. `1-samuel`) — exactly the Worker API's `normalizeBookParam`, so `/static-data/kjv/1-samuel/3.json` and `/api/v1/versions/KJV/1 Samuel/3` address the same chapter. Collisions / reserved words (`books|search|random|index`) are de-duplicated with a numeric suffix; the authoritative slug per book is in that version's `index.json`.
+`{book-slug}` = the book's `book_name` lowercased, spaces/`_`/`+`/punctuation
+collapsed to single `-` (e.g. `1-samuel`) — exactly the Worker API's
+`normalizeBookParam`, so `/static-data/kjv/1-samuel/3.json` and
+`/api/v1/versions/KJV/1 Samuel/3` address the same chapter. Collisions /
+reserved words (`books|search|random|index`) are de-duplicated with a numeric
+suffix; the authoritative slug per book is in that version's `index.json`.
+
 ### Shape parity & generator
-Each `{chapter}.json` is the Worker chapter response verbatim (`version, book, book_name, chapter, intro, verses[], navigation`); indexes mirror `/versions` and `/versions/{v}/books`. `scripts/generate_static.py` reuses `scripts/import.py`'s real `import_file()` against an in-memory SQLite DB shaped by `schema.sql`, so output is byte-for-byte identical to the D1/Worker path (verified: static KJV John 3 == live API, 36 verses + navigation). Idempotent: files are only rewritten on content change (verified: 2nd run = 0 writes). A new version dropped into `/bible-sources/` is readable via this path on the very next Pages deploy, independent of its D1 import state.
+Each `{chapter}.json` matches the Worker chapter response verbatim (`version,
+book, book_name, chapter, intro, verses[], navigation`); indexes mirror
+`/versions` and `/versions/{v}/books`. `scripts/generate_static.py` reuses
+`scripts/import.py`'s real `import_file()` against an in-memory SQLite DB
+shaped by `schema.sql`, so output is byte-for-byte identical to what the API
+serves. Idempotent: files are only rewritten on content change. A new version
+dropped into `/bible-sources/` is readable via this path — and therefore via
+the Worker and the website — on the very next Pages deploy.

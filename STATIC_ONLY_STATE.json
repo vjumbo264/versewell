@@ -137,10 +137,14 @@
     {
       "id": "task-09",
       "title": "Update ARCHITECTURE.md, README, and the API docs page to describe the new static-only architecture and remove outdated D1/quota references.",
-      "status": "pending",
-      "notes": "",
+      "status": "done",
+      "notes": "Rewrote ARCHITECTURE.md (single static-file source of truth; no D1/KV/quota; Worker = read-only layer over Pages static tree; search.json). Rewrote README (add-version = drop file + push; infra has no database resource; layout lists generate_static.py + check_static_consistency.py; removed apply_d1/daily-resume/quota text). Rewrote site/app.js API docs + homepage empty-state + fair-use line to state 'no database, no usage limit', removed D1/quota framing. JS validated (node --check).",
       "commits": [],
-      "files_modified": []
+      "files_modified": [
+        "ARCHITECTURE.md",
+        "README.md",
+        "site/app.js"
+      ]
     },
     {
       "id": "task-10",
@@ -153,5 +157,5 @@
   ],
   "decisions": [],
   "concerns_for_human_review": [],
-  "resume_from": "task-03: move voice.sqlite3 into /bible-sources/, then regenerate + commit the canonical full static index (task-04)."
+  "resume_from": "task-10: full First-Priority Verification (6 checks) then set migration_complete."
 }

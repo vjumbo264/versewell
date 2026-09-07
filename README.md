@@ -50,36 +50,32 @@ Everything is designed to be doable from a phone browser or Termux — no local 
 2. Drop it into the [`/bible-sources/`](bible-sources/) folder of this repository (GitHub web UI: *Add file → Upload files* works fine from a phone; or `git push` from Termux).
 3. Push to `main`. That's it.
 
-On the next deploy, GitHub Actions runs `scripts/apply_d1.py`, which:
+On the next deploy, GitHub Actions runs `scripts/generate_static.py`, which scans `/bible-sources/`, normalizes each `.sqlite` file in memory (handling the known per-source quirks documented in `ARCHITECTURE.md`), and regenerates the static JSON tree under `site/static-data/`. A consistency check then **fails the build loudly** if any source file has no static entry, so a version can never silently fail to appear.
 
-- hashes every file in `/bible-sources/` and compares it to `versions.source_sha256` in D1 — files already imported unchanged are skipped;
-- maps the new file onto the unified schema (`versions`, `verses`, `footnotes`, `section_intros`) via `scripts/import.py`, handling the known per-source quirks documented in `ARCHITECTURE.md`;
-- writes the data to D1 in chunks, committing the `versions` row **last** as the completion marker, so a version only becomes visible to the API/site once it is fully imported (a version can never appear half-loaded).
+The new version then shows up automatically in the version picker, the API, search, and the reader — zero code changes, zero database work, zero waiting on any quota or schedule.
 
-The new version then shows up automatically in the version picker, the API, search, and the reader — zero code changes, zero manual D1 work.
-
-> **Free-tier note:** Cloudflare D1's free tier allows roughly 100k row-writes per day per account. A large multi-version import spans several days; the deploy workflow also runs on a daily schedule (02:17 UTC) and automatically resumes where the quota cut it off. Nothing to do but wait.
+> **No database, no quota:** VerseWell is backed entirely by static JSON files. There is no database and no usage limit of any kind. Adding a version is exactly "drop a file in `/bible-sources/` and push."
 
 ## Repository layout
 
 ```
-bible-sources/     one .sqlite3 per Bible version (source of truth for imports)
-schema.sql         unified D1 schema (versions / verses / footnotes / section_intros)
-scripts/import.py  source .sqlite3 -> unified-schema SQL (per-file quirks handled)
-scripts/apply_d1.py applies import SQL to D1 via the Cloudflare API (quota-aware)
-scripts/deploy_pages.sh  deploys /site to Cloudflare Pages (wrangler wrapper)
-worker/            Cloudflare Worker implementing /api/v1/*
-site/              static reading site (vanilla JS SPA, dogfoods the API)
-.github/workflows/deploy.yml  import + deploy on push to main, plus daily import resume
+bible-sources/     one .sqlite3 per Bible version (the single source of truth)
+schema.sql         normalized in-memory schema the generator builds the tree from (no live DB)
+scripts/import.py  source .sqlite3 -> normalized records (per-file quirks handled)
+scripts/generate_static.py  builds the site/static-data/ JSON tree from the sources
+scripts/check_static_consistency.py  CI guard: fails build on any source<->mirror gap
+worker/            Cloudflare Worker implementing /api/v1/* (reads the static JSON tree)
+site/              static reading site (vanilla JS SPA) + the static-data/ tree
+.github/workflows/deploy.yml  generate static tree -> consistency check -> deploy worker + site
 ARCHITECTURE.md    source-file inventory, per-file schema quirks, mapping decisions
 BUILD_STATE.json   build progress checkpoint (project memory across sessions)
 ```
 
 ## Infrastructure
 
-- **Database:** Cloudflare D1 (`versewell-db`), one unified schema for all versions.
-- **API:** Cloudflare Worker `versewell-api` (bound to D1), deployed by GitHub Actions via wrangler.
-- **Site:** Cloudflare Pages project `versewell` (static files from `/site`), deployed by the same workflow.
-- **CI/CD:** GitHub Actions — push to `main` → import new/changed sources into D1 → deploy worker → deploy site. A daily scheduled run resumes quota-limited imports.
-- **Secrets:** `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are stored as GitHub Actions secrets. The D1 database id is tracked in `.d1_database_id`.
+- **Storage:** none — no database, no KV, no quota-limited service. The static JSON tree under `site/static-data/` (served by Pages) is the single source of truth.
+- **API:** Cloudflare Worker `versewell-api` (a thin read-only layer that fetches the static JSON tree at request time), deployed by GitHub Actions via wrangler.
+- **Site:** Cloudflare Pages project `versewell` (static files from `/site`, including `static-data/`), deployed by the same workflow.
+- **CI/CD:** GitHub Actions — push to `main` → regenerate the static tree → consistency check → deploy worker → deploy site. No scheduled jobs, no import resume.
+- **Secrets:** `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are stored as GitHub Actions secrets.
 - Free tier only; production URLs are the free `*.pages.dev` / `*.workers.dev` subdomains.
