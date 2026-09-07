@@ -1,0 +1,111 @@
+{
+  "migration": "VerseWell — Go Static-Only (Remove D1). Static JSON generated from /bible-sources/*.sqlite becomes the single, permanent source of truth for BOTH the website and the Worker API. No D1, no KV, no quota-limited/paid-tier storage anywhere.",
+  "repo": "https://github.com/vjumbo264/versewell.git",
+  "migration_complete": false,
+  "last_updated_utc": "2026-09-07",
+  "ground_truth_verified_live": {
+    "checked_utc": "2026-09-07",
+    "live_pages_deployment_commit": "265a7b4 (== origin/main HEAD at session start)",
+    "live_static_index_versions": ["AMP", "CEV", "GW", "KJV", "MSG", "NIV", "NKJV", "NLT", "NLV", "TLB"],
+    "live_worker_api_versions": ["AMP", "CEV", "GW", "KJV", "MSG", "NIV", "NKJV", "NLT", "NLV", "TLB"],
+    "voice_in_live_worker_api": "404 (never imported into D1)",
+    "voice_static_tree_live": "site/static-data/voice/* returns HTTP 200 application/json (a stale committed tree rides along in every deploy) BUT is NOT listed in the served top-level index.json",
+    "d1_database_present": "versewell-db uuid 960dbee2-96e3-4629-9ebb-a90b0ac90732 STILL EXISTS (confirmed via Cloudflare API)"
+  },
+  "part1_root_cause": {
+    "status": "documented",
+    "two_layer_defect": true,
+    "layer_A_committed_index_stale": "site/static-data/index.json as COMMITTED in git (every commit since 73afbf9, incl. HEAD 265a7b4) lists ONLY ['VOICE'] — it was generated once from the staged voice.sqlite3 alone and committed as a demo. Meanwhile CI's generate_static.py regenerates index.json at each deploy by scanning ONLY /bible-sources/ (10 files, voice absent), so the DEPLOYED index.json lists the 10 versions and OMITS VOICE. Git and the live site therefore disagree in opposite directions, and the stale committed voice/ tree silently rides along in every Pages deploy. This is the 'silent discovery/indexing gap' — the top-level index is NOT a faithful mirror of the per-version trees that actually exist.",
+    "layer_B_homepage_empty_state": "site/app.js loadVersions() calls ONLY the Worker API /api/v1/versions first and only falls back to /static-data/index.json if the API throws or returns zero versions. Because D1 was mid-import / quota-gated, the API could hang or return an incomplete set; the homepage 'library is being stocked' empty state (renderHome shows it when state.versions.length === 0) is gated on that API result. A stalled workers.dev fetch (no rejection) was reproducibly what a real-browser load hit. The static mirror was wired into per-chapter Reader fetch but NOT reliably into the top-level 'do we have any content' decision.",
+    "fix_direction": "Single source of truth: move voice.sqlite3 into /bible-sources/, regenerate the FULL index.json (all 11 versions incl. VOICE) from /bible-sources/, commit that canonical index, and make BOTH the homepage and the Worker read from the same static tree. Add a CI check that fails loudly if any .sqlite in /bible-sources/ has no corresponding static entry (and vice-versa), so the index can never silently diverge from the source files again."
+  },
+  "architecture_decision": {
+    "worker_static_source": "PENDING (task-06 will finalize). Chosen approach: the Worker fetches the static JSON tree from the deployed Pages origin at request time (option A in the contract), with a small in-Worker cache. Rationale: zero duplication of the 60MB+ JSON tree into the Worker bundle (Workers asset-size limits make bundling the full tree impractical), single canonical copy of the data on Pages, free-tier friendly. Documented fully in task-06.",
+    "response_shape_contract": "All /api/v1/* routes must return byte-for-byte identical response SHAPES to the pre-migration D1 Worker. Golden reference responses captured (versions, books, book, chapter, verse, search, random) before any change."
+  },
+  "tasks": [
+    {
+      "id": "task-01",
+      "title": "Read BUILD_STATE.json + STATIC_MIRROR_STATE.json for context; load live site + live Worker API to establish ACTUAL current state; seed STATIC_ONLY_STATE.json; commit, push, verify push landed.",
+      "status": "done",
+      "notes": "Read both prior state files (context only). Probed live: homepage 200; /static-data/index.json serves 10 versions (no VOICE); voice/john/3.json 200; Worker /api/v1/versions = same 10 (D1-backed); VOICE 404 on Worker; D1 versewell-db (960dbee2) still exists; live Pages deployment == HEAD 265a7b4. Seeded this file.",
+      "commits": [],
+      "files_modified": ["STATIC_ONLY_STATE.json"]
+    },
+    {
+      "id": "task-02",
+      "title": "Investigate and document the actual root cause of the VOICE-missing / homepage-empty-state bug (Part 1). Document only, no fix yet.",
+      "status": "done",
+      "notes": "Two-layer defect documented in part1_root_cause above: (A) committed top-level index.json is stale/VOICE-only while CI regenerates a 10-version index at deploy — index does not mirror the trees on disk; (B) homepage empty-state decision was gated solely on the Worker/D1 /versions response. Both layers must be fixed for a static-only single-source-of-truth end state.",
+      "commits": [],
+      "files_modified": ["STATIC_ONLY_STATE.json"]
+    },
+    {
+      "id": "task-03",
+      "title": "Move voice.sqlite3 from bible-sources-staging/ into /bible-sources/. Commit, push.",
+      "status": "pending",
+      "notes": "",
+      "commits": [],
+      "files_modified": []
+    },
+    {
+      "id": "task-04",
+      "title": "Fix the task-02 root cause: regenerate the canonical full index.json (all versions incl. VOICE) from /bible-sources/ and commit it; ensure homepage/site content check reflects the static index. Verify live that VOICE appears on the homepage.",
+      "status": "pending",
+      "notes": "",
+      "commits": [],
+      "files_modified": []
+    },
+    {
+      "id": "task-05",
+      "title": "Add a CI-level consistency check: fail the build loudly if any .sqlite in /bible-sources/ has no corresponding static mirror entry (and report stale static dirs with no source).",
+      "status": "pending",
+      "notes": "",
+      "commits": [],
+      "files_modified": []
+    },
+    {
+      "id": "task-06",
+      "title": "Rewrite the Worker to serve every existing /api/v1/... route from static JSON instead of D1, preserving identical response shapes. Reimplement search as a static-file text scan.",
+      "status": "pending",
+      "notes": "",
+      "commits": [],
+      "files_modified": []
+    },
+    {
+      "id": "task-07",
+      "title": "Verify live that the rewritten Worker returns identical-shaped, correct responses for versions/books/chapter/verse/search/random, cross-checked against known chapters for exact content match with the static tree.",
+      "status": "pending",
+      "notes": "",
+      "commits": [],
+      "files_modified": []
+    },
+    {
+      "id": "task-08",
+      "title": "Remove the D1 import step, scheduled job, schema, and D1 binding from Worker config. Delete the live D1 database via the Cloudflare API. Confirm via the Cloudflare API that it is actually gone.",
+      "status": "pending",
+      "notes": "",
+      "commits": [],
+      "files_modified": []
+    },
+    {
+      "id": "task-09",
+      "title": "Update ARCHITECTURE.md, README, and the API docs page to describe the new static-only architecture and remove outdated D1/quota references.",
+      "status": "pending",
+      "notes": "",
+      "commits": [],
+      "files_modified": []
+    },
+    {
+      "id": "task-10",
+      "title": "Run the full First-Priority Verification list live (homepage content incl. VOICE; Worker shape parity; search; D1 deleted; no D1 cron/CI refs; end-to-end add-a-new-version demo). Fix anything broken. Only then set migration_complete: true, commit, push.",
+      "status": "pending",
+      "notes": "",
+      "commits": [],
+      "files_modified": []
+    }
+  ],
+  "decisions": [],
+  "concerns_for_human_review": [],
+  "resume_from": "task-03: move voice.sqlite3 into /bible-sources/, then regenerate + commit the canonical full static index (task-04)."
+}
