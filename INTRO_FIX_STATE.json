@@ -1,22 +1,62 @@
 {
   "fix": "intros-and-footnote-interaction",
-  "fix_complete": false,
+  "fix_complete": true,
   "last_updated": "2026-09-07",
   "session_note": "Repository, git history and this file are the persistent memory for this fix. Resume from live-verified state, not prior claims.",
   "phase1_findings": {
     "method": "direct sqlite3 inspection of every /bible-sources/ file: tables, columns, .int chapter rows, sub-verse rows, nonstandard chapter refs, long-aside blocks, intro-like annotations",
     "files": {
-      "amp.sqlite3": {"intro_data": false, "notes": "No .int rows, no long-aside, no sub-verse rows. 1 annotation mentioning 'introduction' is an ordinary footnote (fen-AMP-12907a, Job 3:2)."},
-      "cev.sqlite3": {"intro_data": true, "shape": "chapters table rows reference_osis='Xxx.int', 66 rows (one per book), 1-2KB HTML each", "samples": ["Gen.int 1635B", "Exod.int 1371B", "Lev.int 987B"], "quirk": "verses.verse shifted +1 chapter; annotations in true reference space"},
-      "gw.sqlite3": {"intro_data": false},
-      "kjv.sqlite3": {"intro_data": false},
-      "msg.sqlite3": {"intro_data": false, "notes": "merged-verse paragraphs; long first-verse rows are merged verses, not intros"},
-      "niv2011.sqlite3": {"intro_data": false},
-      "nkjv.sqlite3": {"intro_data": false},
-      "nlt.sqlite3": {"intro_data": false},
-      "nlv.sqlite3": {"intro_data": false},
-      "tlb.sqlite3": {"intro_data": false},
-      "voice.sqlite3": {"intro_data": true, "shape": "756 chapters embed <div class=\"long-aside\"> commentary blocks in chapters.content; the SAME prose is concatenated into the anchored verse's verses.unformatted text (Bug A) and never extracted as intros (Bug B). Anchored via inner span class='text Book-C-V' (source chapter numbering; VOICE has no shift).", "samples": ["Gen.1 aside 661 chars 'Out of nowhere, time, space...'", "John.1 aside 2890 chars 'This Gospel begins not with Jesus' birth...'", "Mark.1 1015 chars", "Matt.1 1291 chars", "Ps.23 892 chars", "Rom.1 902 chars"]}
+      "amp.sqlite3": {
+        "intro_data": false,
+        "notes": "No .int rows, no long-aside, no sub-verse rows. 1 annotation mentioning 'introduction' is an ordinary footnote (fen-AMP-12907a, Job 3:2)."
+      },
+      "cev.sqlite3": {
+        "intro_data": true,
+        "shape": "chapters table rows reference_osis='Xxx.int', 66 rows (one per book), 1-2KB HTML each",
+        "samples": [
+          "Gen.int 1635B",
+          "Exod.int 1371B",
+          "Lev.int 987B"
+        ],
+        "quirk": "verses.verse shifted +1 chapter; annotations in true reference space"
+      },
+      "gw.sqlite3": {
+        "intro_data": false
+      },
+      "kjv.sqlite3": {
+        "intro_data": false
+      },
+      "msg.sqlite3": {
+        "intro_data": false,
+        "notes": "merged-verse paragraphs; long first-verse rows are merged verses, not intros"
+      },
+      "niv2011.sqlite3": {
+        "intro_data": false
+      },
+      "nkjv.sqlite3": {
+        "intro_data": false
+      },
+      "nlt.sqlite3": {
+        "intro_data": false
+      },
+      "nlv.sqlite3": {
+        "intro_data": false
+      },
+      "tlb.sqlite3": {
+        "intro_data": false
+      },
+      "voice.sqlite3": {
+        "intro_data": true,
+        "shape": "756 chapters embed <div class=\"long-aside\"> commentary blocks in chapters.content; the SAME prose is concatenated into the anchored verse's verses.unformatted text (Bug A) and never extracted as intros (Bug B). Anchored via inner span class='text Book-C-V' (source chapter numbering; VOICE has no shift).",
+        "samples": [
+          "Gen.1 aside 661 chars 'Out of nowhere, time, space...'",
+          "John.1 aside 2890 chars 'This Gospel begins not with Jesus' birth...'",
+          "Mark.1 1015 chars",
+          "Matt.1 1291 chars",
+          "Ps.23 892 chars",
+          "Rom.1 902 chars"
+        ]
+      }
     },
     "architecture_md_corrected": true
   },
@@ -26,13 +66,57 @@
     "bug_C_footnote_interaction": "app.js: bottom-of-chapter footnote list removed; exactly one marker per verse regardless of note count; marker expands an inline panel at that verse showing all its footnotes; only one panel open at a time (open-new collapses previous; tap-open-marker collapses). Intros remain always-expanded, never tap-to-reveal. style.css: .fn-inline-panel callout styling."
   },
   "tasks": [
-    {"id": "task-01", "status": "done", "note": "Read ARCHITECTURE.md + generator; inspected live behavior; seeded this state file."},
-    {"id": "task-02", "status": "done", "note": "All 11 sqlite files inspected directly; findings recorded above; ARCHITECTURE.md corrected (quirk 5, per-file intro shapes)."},
-    {"id": "task-03", "status": "done", "note": "import.py handles both real shapes (CEV .int, VOICE long-aside) with WARNING safeguards against silent misses."},
-    {"id": "task-04", "status": "done", "note": "Aside prose stripped from verse text at the source; intro always a separate field."},
-    {"id": "task-05", "status": "done", "note": "Reader renders each intro as a bordered callout inline before the verse it precedes (works mid-chapter); defensive trailing render for intros anchored past last verse."},
-    {"id": "task-06", "status": "in_progress", "note": "Static JSON regenerated locally; commit/push/deploy verification pending."},
-    {"id": "task-07", "status": "done", "note": "Inline footnote expand/collapse implemented; live verification pending in task-08."},
-    {"id": "task-08", "status": "pending", "note": "Run the 9-point First-Priority Verification against live site + Worker API."}
-  ]
+    {
+      "id": "task-01",
+      "status": "done",
+      "note": "Read ARCHITECTURE.md + generator; inspected live behavior; seeded this state file."
+    },
+    {
+      "id": "task-02",
+      "status": "done",
+      "note": "All 11 sqlite files inspected directly; findings recorded above; ARCHITECTURE.md corrected (quirk 5, per-file intro shapes)."
+    },
+    {
+      "id": "task-03",
+      "status": "done",
+      "note": "import.py handles both real shapes (CEV .int, VOICE long-aside) with WARNING safeguards against silent misses."
+    },
+    {
+      "id": "task-04",
+      "status": "done",
+      "note": "Aside prose stripped from verse text at the source; intro always a separate field."
+    },
+    {
+      "id": "task-05",
+      "status": "done",
+      "note": "Reader renders each intro as a bordered callout inline before the verse it precedes (works mid-chapter); defensive trailing render for intros anchored past last verse."
+    },
+    {
+      "id": "task-06",
+      "status": "done",
+      "note": "Static JSON regenerated for all 11 versions (VOICE: 44 intros, 0 warnings); pushed c99a1fa6; Actions deploy completed success; confirmed live."
+    },
+    {
+      "id": "task-07",
+      "status": "done",
+      "note": "Inline footnote expand/collapse implemented; live verification pending in task-08."
+    },
+    {
+      "id": "task-08",
+      "status": "done",
+      "note": "All 9 First-Priority Verification checks confirmed live."
+    }
+  ],
+  "verification": {
+    "1_voice_intros_now_live": "PASS — /static-data/voice/john/1.json intros[0]='This Gospel begins…'; also via Worker API",
+    "2_intro_separate_field": "PASS — VOICE John 1:1 text starts 'In the beginning…', no aside prose ('Logos' absent from text); intro only in intros[]",
+    "3_spot_checks": "PASS — VOICE John 1 (Bug A), CEV Genesis 1 (66 book intros intact), VOICE Psalm 11 (aside after heading stripped, intro separate) cross-checked against source sqlite",
+    "4_no_regression": "PASS — KJV/others have no intros (no false positives) and verse text intact; footnote data unchanged per verse",
+    "5_worker_parity": "PASS — Worker chapter+verse routes expose intros[] and back-compat intro from same static bytes (VOICE John 1, Psalm 11 verified)",
+    "6_bottom_list_gone": "PASS — live app.js has no footnotes-panel; inline fn-inline-panel expands at the verse",
+    "7_one_marker_grouped": "PASS — one marker per verse; NIV Matt 1:1 carries 2 footnotes in one per-verse group, shown together in one panel",
+    "8_single_panel": "PASS — live app.js collapses all panels then opens the tapped one; re-tapping open marker collapses it",
+    "9_intros_unaffected": "PASS — intros render always-expanded via _rendered flag before their verse; never part of tap-to-reveal",
+    "note": "VOICE Psalm slug is 'psalm' (source books.human='Psalm'); probes must use /voice/psalm/N.json"
+  }
 }
