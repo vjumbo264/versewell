@@ -232,33 +232,42 @@ async function renderReader(version, bookParam, chapterStr) {
     data = await api(`/api/v1/versions/${version}/${encRef(bookParam)}/${chapter}`);
   }
 
-  const intro = data.intro
-    ? `<div class="section-intro"><span class="intro-label">Introduction · ${esc(data.book_name)}</span>${esc(data.intro.text)}</div>`
-    : '';
+  // Section intros: always-visible blocks rendered inline, immediately
+  // before the verse (start of the range) they introduce — never collapsed,
+  // never tap-to-reveal (that pattern is for footnotes only).
+  const intros = (data.intros || (data.intro ? [data.intro] : []))
+    .slice()
+    .sort((a, b) => a.start_verse - b.start_verse);
 
-  let footnoteIndex = [];
   const versesHtml = data.versions ? '' : data.verses
     .map((v) => {
+      let introHtml = '';
+      intros.forEach((it) => {
+        if (!it._rendered && it.start_verse <= v.verse) {
+          it._rendered = true;
+          introHtml += `<div class="section-intro"><span class="intro-label">Introduction · ${esc(data.book_name)}</span>${esc(it.text)}</div>`;
+        }
+      });
       const notes = v.footnotes || [];
-      notes.forEach((n, i) => footnoteIndex.push({ verse: v.verse, marker: n.marker, text: n.text, n: footnoteIndex.length + 1 }));
-      const markers = notes
-        .map((n, i) => {
-          const num = footnoteIndex.length - notes.length + i + 1;
-          return `<button class="fn-marker" data-fn="${num}" title="Footnote ${num}">[${num}]</button>`;
-        })
-        .join('');
-      return `<p class="verse"><span class="verse-num">${v.verse}</span>${esc(v.text)}${markers}</p>`;
+      // Exactly ONE marker per verse, no matter how many footnotes attach.
+      const marker = notes.length
+        ? `<button class="fn-marker" data-v="${v.verse}" title="${notes.length} footnote${notes.length === 1 ? '' : 's'}">[${notes.length > 1 ? notes.length : '†'}]</button>`
+        : '';
+      const panel = notes.length
+        ? `<div class="fn-inline-panel" id="fn-panel-${v.verse}" hidden>${notes
+            .map((n) => `<p class="fn-item"><span class="fn-ref">${esc(n.marker)}</span> ${esc(n.text)}</p>`)
+            .join('')}</div>`
+        : '';
+      return `${introHtml}<p class="verse"><span class="verse-num">${v.verse}</span>${esc(v.text)}${marker}</p>${panel}`;
     })
     .join('');
 
-  const fnPanel = footnoteIndex.length
-    ? `<div class="footnotes-panel"><h2>Footnotes</h2>${footnoteIndex
-        .map(
-          (f) =>
-            `<p class="fn-item" id="fn-${f.n}"><span class="fn-ref">${f.n}. ${esc(data.book_name)} ${data.chapter}:${f.verse}</span> — ${esc(f.text)}</p>`
-        )
-        .join('')}</div>`
-    : '';
+  // Defensive: an intro anchored beyond the chapter's last verse still
+  // renders at the end rather than being silently dropped.
+  const trailingIntros = intros
+    .filter((it) => !it._rendered)
+    .map((it) => `<div class="section-intro"><span class="intro-label">Introduction · ${esc(data.book_name)}</span>${esc(it.text)}</div>`)
+    .join('');
 
   const nav = (target, label) =>
     target
@@ -271,17 +280,22 @@ async function renderReader(version, bookParam, chapterStr) {
       <span class="reader-sub">${esc(version)}</span>
     </div>
     <div class="chapter-nav">${nav(data.navigation.prev, '← Previous')}${nav(data.navigation.next, 'Next →')}</div>
-    <div class="reader-body">${intro}${versesHtml}</div>
-    ${fnPanel}
+    <div class="reader-body">${versesHtml}${trailingIntros}</div>
     <div class="chapter-nav">${nav(data.navigation.prev, '← Previous')}${nav(data.navigation.next, 'Next →')}</div>`;
 
+  // Inline footnote expand/collapse: panels open in place at their verse
+  // (no jump to a bottom list — that list is gone). Only one panel may be
+  // open at a time; tapping the open verse's marker again collapses it.
   view.querySelectorAll('.fn-marker').forEach((btn) =>
     btn.addEventListener('click', () => {
-      const item = view.querySelector(`#fn-${btn.dataset.fn}`);
-      if (!item) return;
-      view.querySelectorAll('.fn-item.highlight').forEach((el) => el.classList.remove('highlight'));
-      item.classList.add('highlight');
-      item.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      const panel = view.querySelector(`#fn-panel-${btn.dataset.v}`);
+      const wasOpen = panel && !panel.hidden;
+      view.querySelectorAll('.fn-inline-panel').forEach((p) => { p.hidden = true; });
+      view.querySelectorAll('.fn-marker.open').forEach((b) => b.classList.remove('open'));
+      if (panel && !wasOpen) {
+        panel.hidden = false;
+        btn.classList.add('open');
+      }
     })
   );
   renderSwitcher();

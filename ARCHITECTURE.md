@@ -39,7 +39,7 @@ logical layout (an And Bible / bible-app style export), with per-file quirks:
 | nlt.sqlite3 | NLT | New Living Translation | 31,064 | 4,810 | no |
 | nlv.sqlite3 | NLV | New Life Version | 31,102 | 481 | no |
 | tlb.sqlite3 | TLB | Living Bible | 28,071 | 2,406 | no |
-| voice.sqlite3 | VOICE | The Voice | 30,199 | 1,592 | no |
+| voice.sqlite3 | VOICE | The Voice | 30,199 | 1,592 | **yes — 756 chapters carry `long-aside` commentary blocks** |
 
 ### Common source schema (all files)
 
@@ -86,6 +86,21 @@ logical layout (an And Bible / bible-app style export), with per-file quirks:
    strips a leading heading line when the verse is the first of a chapter or
    the heading pattern is detected. Headings are not currently exposed
    separately; that is a possible future enhancement.
+5. **VOICE long-aside commentary (corrects earlier 'no intros' claim).**
+   756 VOICE chapters embed `<div class="long-aside">` commentary/intro
+   blocks in the chapter HTML, and the same prose is *also* concatenated
+   into the anchored verse's `unformatted` text. That is the root cause of
+   the two intro bugs: the prose was merged into verse text on the site, and
+   no intros were ever extracted for VOICE. The importer now lifts each
+   aside into `section_intros` (anchored at its verse via the inner span's
+   `class="text Book-C-V"`, in source chapter numbering) and strips it from
+   the verse text. An aside that fails to match its verse text prefix logs a
+   loud WARNING at generation time — a schema drift can never fail silently
+   again. Direct inspection confirmed the remaining files (AMP, GW, KJV,
+   MSG, NIV2011, NKJV, NLT, NLV, TLB) genuinely have no intro data (no
+   `.int` rows, no sub-verse rows, no long-aside blocks, no intro-like
+   annotations); AMP's single 'introduction' annotation is an ordinary
+   footnote.
 
 ---
 
@@ -110,7 +125,7 @@ DB and writes plain JSON files to `site/static-data/`.
 | `versions.has_intros` | any `Xxx.int` chapter rows (CEV only) |
 | `verses.*` | `verses` table; `book` joined to `books` for name/order; **CEV: chapter − 1** |
 | `footnotes.*` | `annotations` where link is `fen-*` or `*!f.*`; target parsed from `title="Go to Book C:V"` (fen style) or from the link (USFM style); HTML stripped |
-| `section_intros.*` | CEV `chapters` rows with `reference_osis` = `Xxx.int`; stored as `chapter=1, start_verse=1, end_verse=<last verse of ch 1>` so they render as the bordered intro block before chapter 1 of the book |
+| `section_intros.*` | Two real per-file shapes (verified by direct inspection, not assumed): (1) CEV `chapters` rows with `reference_osis` = `Xxx.int` — book intros, stored as `chapter=1, start_verse=1, end_verse=<last verse of ch 1>`; (2) VOICE `long-aside` blocks (quirk 5) — stored anchored at their verse, `start_verse=end_verse=<anchor verse>`. A chapter may carry multiple intros; chapter JSON exposes `intros[]` plus the singular `intro` for back-compat. |
 
 ---
 
@@ -145,8 +160,9 @@ GET /api/v1/versions/:version/search?q=...
 GET /api/v1/versions/:version/random
 ```
 
-Chapter/verse responses embed `intro` (when a section intro covers them) and
-per-verse `footnotes`; `?notes=false` omits them. CORS `*`, JSON error shape
+Chapter/verse responses embed `intros[]` (all intros in the chapter, plus the
+back-compat singular `intro`) and per-verse `footnotes`; `?notes=false` omits
+them. CORS `*`, JSON error shape
 `{"error": {"code", "message"}}`, `Cache-Control: public, max-age=86400` on
 successful reads.
 
@@ -166,8 +182,11 @@ subrequest limit). There is no SQL, no `LIKE`, no database.
 
 Vanilla HTML/CSS/JS (no framework, no build step) in `/site/`. Pages: Home
 (version picker + book/chapter navigator), Reader (`#/v/:version/:book/:chapter`
-— intros as bordered blocks, footnotes as tappable superscript markers with an
-expandable panel, prev/next chapter, version switcher), Search, API Docs
+— intros as always-visible bordered blocks rendered inline before the verse
+range they introduce; footnotes as ONE tappable marker per verse (grouping all
+of that verse's notes) with inline expand/collapse at that verse's position —
+only one panel open at a time, no bottom-of-chapter list — prev/next chapter,
+version switcher), Search, API Docs
 (`#/docs`). Dark/light mode via `prefers-color-scheme` + toggle. The site
 reads the same static tree (and the public API) — no special backend access.
 
@@ -215,7 +234,7 @@ suffix; the authoritative slug per book is in that version's `index.json`.
 
 ### Shape parity & generator
 Each `{chapter}.json` matches the Worker chapter response verbatim (`version,
-book, book_name, chapter, intro, verses[], navigation`); indexes mirror
+book, book_name, chapter, intros, verses[], navigation`); indexes mirror
 `/versions` and `/versions/{v}/books`. `scripts/generate_static.py` reuses
 `scripts/import.py`'s real `import_file()` against an in-memory SQLite DB
 shaped by `schema.sql`, so output is byte-for-byte identical to what the API

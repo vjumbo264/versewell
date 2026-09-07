@@ -16,8 +16,8 @@
  *   GET /api/v1/versions/:version/search?q=...
  *   GET /api/v1/versions/:version/random
  *
- * Chapter/verse responses nest `intro` and per-verse `footnotes`; pass
- * ?notes=false to omit them. CORS is open (public API). Errors use a
+ * Chapter/verse responses nest `intros[]` (plus back-compat `intro`) and
+ * per-verse `footnotes`; pass ?notes=false to omit them. CORS is open (public API). Errors use a
  * consistent shape: {"error": {code, message}}.
  *
  * Fetch strategy: the canonical tree lives on the Pages origin (the only copy
@@ -143,7 +143,12 @@ async function handleChapter(versionRow, versionIndex, bookRow, chapter, wantNot
     book: data.book,
     book_name: data.book_name,
     chapter: data.chapter,
-    ...(wantNotes ? { intro: data.intro ?? null } : {}),
+    ...(wantNotes
+      ? {
+          intro: (data.intros && data.intros[0]) ?? data.intro ?? null,
+          intros: data.intros ?? (data.intro ? [data.intro] : null),
+        }
+      : {}),
     verses,
     navigation: data.navigation,
   });
@@ -160,10 +165,11 @@ async function handleVerse(versionRow, bookRow, chapter, verseNum, wantNotes) {
   if (!v) {
     return notFound(`Verse ${bookRow.book_name} ${chapter}:${verseNum} not found (${versionRow.code}).`);
   }
+  const allIntros = data.intros ?? (data.intro ? [data.intro] : []);
   let intro = null;
-  if (wantNotes && data.intro) {
-    const it = data.intro;
-    intro = it.start_verse <= verseNum && verseNum <= it.end_verse ? it : null;
+  if (wantNotes) {
+    intro =
+      allIntros.find((it) => it.start_verse <= verseNum && verseNum <= it.end_verse) || null;
   }
   return json({
     version: versionRow.code,
@@ -172,7 +178,9 @@ async function handleVerse(versionRow, bookRow, chapter, verseNum, wantNotes) {
     chapter: data.chapter,
     verse: v.verse,
     text: v.text,
-    ...(wantNotes ? { footnotes: v.footnotes || [], intro } : {}),
+    ...(wantNotes
+      ? { footnotes: v.footnotes || [], intro, intros: allIntros.length ? allIntros : null }
+      : {}),
   });
 }
 

@@ -124,6 +124,25 @@ def note_marker(link, n):
     return m.group(1) if m else str(n)
 
 
+def find_aside_span(vtext, aside):
+    """Locate `aside` inside `vtext` tolerating small editorial diffs.
+    Probes 30-char windows at increasing offsets into the aside, then finds
+    the aside's tail to bound the span. Returns (start, end) or None."""
+    if not vtext or not aside:
+        return None
+    probe_len = 30
+    for off in range(0, max(1, min(len(aside) - probe_len, 60)), 3):
+        probe = aside[off:off + probe_len]
+        i = vtext.find(probe)
+        if i >= 0:
+            start = max(0, i - off)
+            tail = aside[-probe_len:]
+            j = vtext.find(tail, i)
+            end = (j + len(tail)) if j >= 0 else min(len(vtext), start + len(aside))
+            return (start, end)
+    return None
+
+
 def import_file(path, out_sql):
     filename = os.path.basename(path)
     con = sqlite3.connect(path)
@@ -145,6 +164,29 @@ def import_file(path, out_sql):
     is_cev = code == "CEV"
     chapter_shift = 1 if is_cev else 0
     headings = heading_sets(con)
+
+    # --- long-aside intros (VOICE-style commentary blocks) ---
+    # Some exports (VOICE) store commentary/intro blocks in the chapter HTML
+    # as <div class="long-aside">…</div> AND concatenate the same prose into
+    # the anchored verse's `unformatted` text. Detect them per file (never
+    # assume one file's schema generalizes), lift them into section_intros,
+    # and strip them from the verse text so intro prose is never baked into
+    # a verse. Anchored via the inner span's class="text Book-C-V" (which is
+    # in the source's own chapter numbering).
+    aside_blocks = {}  # (osis, src_chapter, src_verse) -> plain text
+    for ref, content in cur.execute(
+        "SELECT reference_osis, content FROM chapters WHERE content LIKE '%long-aside%'"
+    ):
+        for m in re.finditer(r'(?is)<div class="long-aside">(.*?)</div>', content or ""):
+            block = m.group(1)
+            vm = re.search(r'class="text ([A-Za-z0-9]+)-(\d+)-(\d+)"', block)
+            if not vm:
+                continue
+            a_osis, a_ch, a_v = vm.group(1), int(vm.group(2)), int(vm.group(3))
+            txt = re.sub(r"\s+", " ", strip_html(block)).strip()
+            if txt:
+                aside_blocks.setdefault((a_osis, a_ch, a_v), txt)
+    used_asides = set()
 
     sha = hashlib.sha256(open(path, "rb").read()).hexdigest()
 
@@ -181,7 +223,47 @@ def import_file(path, out_sql):
         if vkey in seen_verse_keys:
             continue
         seen_verse_keys.add(vkey)
+        # Strip a long-aside intro block concatenated into this verse's text.
+        # The aside is usually the verse-text prefix, but headings ("Book
+        # One", "Psalm 5", subscription lines) may precede it and tiny
+        # editorial diffs exist between the chapter-HTML copy and the verse
+        # copy — so locate the aside by sliding-window containment and cut
+        # the matched span, rather than assuming an exact prefix.
+        akey = (r["book"], src_ch, vnum)
+        aside_txt = aside_blocks.get(akey)
+        if aside_txt:
+            norm = re.sub(r"\s+", " ", text).strip()
+            span = find_aside_span(norm, aside_txt)
+            if span:
+                start, end = span
+                text = (norm[:start] + " " + norm[end:]).strip()
+                text = re.sub(r"\s+", " ", text).strip()
+                used_asides.add(akey)
+                # Intro is stored in true reference space (post-shift ch).
+                intros.append((code, r["book"], ch, vnum, vnum, aside_txt))
+                if not text:
+                    continue  # the verse row was ONLY the aside block
+            else:
+                # Sanity check: never fail silently. If the aside prose
+                # cannot be located in the verse text, leave the text
+                # untouched and warn loudly so the mismatch is detectable.
+                print(
+                    f"WARNING {filename}: long-aside at {r['book']} {src_ch}:{vnum} "
+                    "could not be located in its verse text; left in verse text",
+                    file=sys.stderr,
+                )
         verses.append((code, r["book"], b["human"], b["number"], ch, vnum, text))
+
+    # Sanity check: any long-aside block that matched no verse row is a
+    # silent-miss risk — surface it in the generation log.
+    orphan_asides = set(aside_blocks) - used_asides
+    if orphan_asides:
+        print(
+            f"WARNING {filename}: {len(orphan_asides)} long-aside block(s) matched "
+            "no verse row: "
+            + ", ".join(sorted(f"{b} {c}:{v}" for b, c, v in orphan_asides)[:10]),
+            file=sys.stderr,
+        )
 
     # --- footnotes ---
     fen_style = False

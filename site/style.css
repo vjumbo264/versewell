@@ -146,14 +146,19 @@ a { color: var(--link); }
   background: none; border: none; padding: 0 1px; cursor: pointer;
   color: var(--link); font-weight: 700; text-decoration: underline dotted;
 }
-.footnotes-panel {
-  margin-top: 26px; padding: 14px 16px 6px;
-  border-top: 1px solid var(--border);
+.fn-marker.open { color: var(--accent); }
+/* Inline footnote panel: expands in place at its verse (no bottom list).
+ * Visually echoes the section-intro callout so notes read as a distinct
+ * block, separate from body verse text. */
+.fn-inline-panel {
+  margin: 4px 0 14px 18px; padding: 10px 14px 2px;
+  background: var(--intro-bg); border: 1px solid var(--border); border-left: 4px solid var(--accent);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  font-size: 0.88rem; line-height: 1.55;
 }
-.footnotes-panel h2 { margin-top: 0; font-size: 0.95rem; }
 .fn-item { font-size: 0.85rem; line-height: 1.5; margin: 0 0 10px; color: var(--muted); }
+.fn-inline-panel .fn-item { color: var(--text); }
 .fn-item .fn-ref { font-weight: 700; color: var(--accent); }
-.fn-item:target, .fn-item.highlight { background: var(--accent-soft); border-radius: 6px; }
 
 /* ---------- search ---------- */
 .search-bar { display: flex; gap: 8px; margin: 16px 0 20px; }

@@ -1,0 +1,38 @@
+{
+  "fix": "intros-and-footnote-interaction",
+  "fix_complete": false,
+  "last_updated": "2026-09-07",
+  "session_note": "Repository, git history and this file are the persistent memory for this fix. Resume from live-verified state, not prior claims.",
+  "phase1_findings": {
+    "method": "direct sqlite3 inspection of every /bible-sources/ file: tables, columns, .int chapter rows, sub-verse rows, nonstandard chapter refs, long-aside blocks, intro-like annotations",
+    "files": {
+      "amp.sqlite3": {"intro_data": false, "notes": "No .int rows, no long-aside, no sub-verse rows. 1 annotation mentioning 'introduction' is an ordinary footnote (fen-AMP-12907a, Job 3:2)."},
+      "cev.sqlite3": {"intro_data": true, "shape": "chapters table rows reference_osis='Xxx.int', 66 rows (one per book), 1-2KB HTML each", "samples": ["Gen.int 1635B", "Exod.int 1371B", "Lev.int 987B"], "quirk": "verses.verse shifted +1 chapter; annotations in true reference space"},
+      "gw.sqlite3": {"intro_data": false},
+      "kjv.sqlite3": {"intro_data": false},
+      "msg.sqlite3": {"intro_data": false, "notes": "merged-verse paragraphs; long first-verse rows are merged verses, not intros"},
+      "niv2011.sqlite3": {"intro_data": false},
+      "nkjv.sqlite3": {"intro_data": false},
+      "nlt.sqlite3": {"intro_data": false},
+      "nlv.sqlite3": {"intro_data": false},
+      "tlb.sqlite3": {"intro_data": false},
+      "voice.sqlite3": {"intro_data": true, "shape": "756 chapters embed <div class=\"long-aside\"> commentary blocks in chapters.content; the SAME prose is concatenated into the anchored verse's verses.unformatted text (Bug A) and never extracted as intros (Bug B). Anchored via inner span class='text Book-C-V' (source chapter numbering; VOICE has no shift).", "samples": ["Gen.1 aside 661 chars 'Out of nowhere, time, space...'", "John.1 aside 2890 chars 'This Gospel begins not with Jesus' birth...'", "Mark.1 1015 chars", "Matt.1 1291 chars", "Ps.23 892 chars", "Rom.1 902 chars"]}
+    },
+    "architecture_md_corrected": true
+  },
+  "fixes": {
+    "bug_A_intro_merged_into_verse_text": "import.py now detects long-aside blocks per file, strips the aside prose from the anchored verse's text (with loud WARNING on mismatch), and emits it as a section_intros row (start_verse=end_verse=anchor). Intro is a separate field, never concatenated.",
+    "bug_B_version_with_intros_shows_none": "VOICE intro extraction added (previous code only handled CEV .int rows). Chapter JSON now emits intros[] (no LIMIT 1 drop) plus back-compat singular intro. Generator logs an intro-count sanity check per version.",
+    "bug_C_footnote_interaction": "app.js: bottom-of-chapter footnote list removed; exactly one marker per verse regardless of note count; marker expands an inline panel at that verse showing all its footnotes; only one panel open at a time (open-new collapses previous; tap-open-marker collapses). Intros remain always-expanded, never tap-to-reveal. style.css: .fn-inline-panel callout styling."
+  },
+  "tasks": [
+    {"id": "task-01", "status": "done", "note": "Read ARCHITECTURE.md + generator; inspected live behavior; seeded this state file."},
+    {"id": "task-02", "status": "done", "note": "All 11 sqlite files inspected directly; findings recorded above; ARCHITECTURE.md corrected (quirk 5, per-file intro shapes)."},
+    {"id": "task-03", "status": "done", "note": "import.py handles both real shapes (CEV .int, VOICE long-aside) with WARNING safeguards against silent misses."},
+    {"id": "task-04", "status": "done", "note": "Aside prose stripped from verse text at the source; intro always a separate field."},
+    {"id": "task-05", "status": "done", "note": "Reader renders each intro as a bordered callout inline before the verse it precedes (works mid-chapter); defensive trailing render for intros anchored past last verse."},
+    {"id": "task-06", "status": "in_progress", "note": "Static JSON regenerated locally; commit/push/deploy verification pending."},
+    {"id": "task-07", "status": "done", "note": "Inline footnote expand/collapse implemented; live verification pending in task-08."},
+    {"id": "task-08", "status": "pending", "note": "Run the 9-point First-Priority Verification against live site + Worker API."}
+  ]
+}

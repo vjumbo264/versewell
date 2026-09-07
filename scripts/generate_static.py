@@ -164,22 +164,23 @@ def generate_version(importer, path, out_root):
                 if vr["verse"] in fn_rows:
                     v["footnotes"] = fn_rows[vr["verse"]]
                 verses.append(v)
-            intro_row = con.execute(
+            # A chapter may carry MULTIPLE intros (book intro at ch 1 plus
+            # mid-chapter asides) — never LIMIT 1, that silently drops data.
+            intro_rows = con.execute(
                 "SELECT start_verse, end_verse, intro_text FROM section_intros "
-                "WHERE version=? AND book=? AND chapter=? ORDER BY start_verse LIMIT 1",
+                "WHERE version=? AND book=? AND chapter=? ORDER BY start_verse",
                 (code, b["book"], ch),
-            ).fetchone()
-            intro = (
-                {"start_verse": intro_row["start_verse"], "end_verse": intro_row["end_verse"], "text": intro_row["intro_text"]}
-                if intro_row
-                else None
-            )
+            ).fetchall()
+            intros = [
+                {"start_verse": r["start_verse"], "end_verse": r["end_verse"], "text": r["intro_text"]}
+                for r in intro_rows
+            ]
             payload = {
                 "version": code,
                 "book": b["book"],
                 "book_name": b["book_name"],
                 "chapter": ch,
-                "intro": intro,
+                "intros": intros or None,
                 "verses": verses,
                 "navigation": navigation(books_rows, b["book"], ch, b["chapters"]),
             }
@@ -231,6 +232,18 @@ def generate_version(importer, path, out_root):
         os.path.join(version_dir, "search.json"), {"version": code, "entries": search_entries}
     )
 
+    intro_count = con.execute(
+        "SELECT COUNT(*) FROM section_intros WHERE version=?", (code,)
+    ).fetchone()[0]
+    # Sanity check vs the importer's own count — a mismatch means the
+    # normalized DB lost intros between extraction and output.
+    if intro_count != meta.get("intros", 0):
+        print(
+            "WARNING %s: importer extracted %d intros but unified DB holds %d"
+            % (code, meta.get("intros", 0), intro_count),
+            file=sys.stderr,
+        )
+
     top = {
         "code": ver["code"],
         "name": ver["name"],
@@ -241,7 +254,7 @@ def generate_version(importer, path, out_root):
         "verse_count": ver["verse_count"],
     }
     con.close()
-    return code, top, changed
+    return code, top, changed, intro_count
 
 
 def main():
@@ -260,10 +273,10 @@ def main():
     top_versions = []
     total_changed = 0
     for f in files:
-        code, top, changed = generate_version(importer, os.path.join(SRC_DIR, f), OUT_DIR)
+        code, top, changed, intro_count = generate_version(importer, os.path.join(SRC_DIR, f), OUT_DIR)
         top_versions.append(top)
         total_changed += changed
-        print("static mirror: %-8s %6d verses  (%d file(s) written)" % (code, top["verse_count"], changed))
+        print("static mirror: %-8s %6d verses  %5d intros  (%d file(s) written)" % (code, top["verse_count"], intro_count, changed))
 
     top_versions.sort(key=lambda v: v["code"])
     total_changed += write_if_changed(os.path.join(OUT_DIR, "index.json"), {"versions": top_versions})
