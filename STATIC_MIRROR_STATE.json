@@ -9,10 +9,25 @@
     "secondary_bug": "The Reader's static path computed its book slug from the URL param, which the app generates from the OSIS code ('1Sam' -> '1sam'). Static files use full book-name slugs ('1-samuel'). So numbered books (1/2 Samuel, Kings, Corinthians...) static-missed (Pages returns 200 + SPA shell for unknown paths) and fell through to the API — which 404s for any version not yet in D1. Fix: resolve the real slug via the per-version /static-data/{v}/index.json before fetching.",
     "how_proven": "(1) curl of live homepage, /static-data/index.json, /static-data/kjv/john/3.json — all 200, correct content-types; mirror live. (2) diff of live app.js vs repo app.js — byte-identical, and Cloudflare Pages API shows the production deployment is at the latest origin/main commit, so no stale-deploy explanation. (3) Headless render of the live homepage showed it stuck at 'Loading...' — loadVersions() awaiting the Worker API with no fallback and no static consult. (4) Static slug check: /static-data/kjv/1sam/3.json returns 200 text/html (SPA shell), /static-data/kjv/1-samuel/3.json returns 200 application/json — proving the slug mismatch.",
     "why_prior_verification_missed_it": "The prior session's verification table only tested direct chapter JSON URLs and direct Reader deep-links (static 200 vs API 404 for VOICE). It never loaded the actual homepage the way a user does and never exercised the top-level empty-state decision, which lived entirely in loadVersions()/renderHome() and only ever looked at the Worker API. A version that IS in D1 masks the bug completely on every page.",
-    "fix": "site/app.js: loadVersions() now falls back to /static-data/index.json when the Worker API fails OR returns zero versions; loadBooks() falls back to /static-data/{v}/index.json; renderReader() resolves the true static slug from the per-version index before fetching. Static shapes reuse API shapes so no rendering code changed.",
-    "regression_fixed": false,
-    "fix_commit": null,
-    "verification": null
+    "fix": "site/app.js: loadVersions() falls back to /static-data/index.json when the Worker API fails OR returns zero versions; loadBooks() falls back to /static-data/{v}/index.json; renderReader() resolves the true static slug from the per-version index before fetching; fetchTimeout() (8s AbortController) wraps both API and static fetches so a STALLED request (never rejects) also falls back instead of hanging the page on 'Loading...' forever — a stalled workers.dev fetch was reproducibly what the real-browser load hit. Additionally fixed a pre-existing Worker off-by-one (worker/index.js): /versions/:v/{books,search,random} guarded on segments.length === 4 but those paths have 5 segments, so all three routes 404'd in production since the Worker shipped; the homepage books grid had only ever rendered via the static fallback. Static shapes reuse API shapes so no rendering code changed.",
+    "regression_fixed": true,
+    "fix_commits": {
+      "app_js_static_fallback": "725aee4ee6b868413665516437426fc03d204dd8",
+      "app_js_fetch_timeout": "82b2294c9ece40cdc9716e792f63c5c6e63f82fa",
+      "worker_route_off_by_one": "2eb65cfbab8ed7031be6e95d4507055c2e12fbe0"
+    },
+    "verification": {
+      "method": "Real headless Chromium (Playwright) full page loads against live https://versewell.pages.dev/ after CI deployed each fix (GitHub Actions runs for 725aee4, 82b2294, 2eb65cf all completed success; live app.js diffed byte-identical to fixed repo copy). NOT just direct-URL JSON fetches — this is the check the original verification table never did.",
+      "results": {
+        "homepage_fresh_load": "renders 10 version cards + 66 book links; NOT the 'library is being stocked' empty state; NOT stuck on Loading; zero failed network requests; zero JS errors",
+        "version_not_in_d1": "VOICE (in /static-data/ but API returns 'Unknown version VOICE' / not in D1) renders from the static mirror alone: 66 books listed, #/v/VOICE/John/3 renders 35 verses, no error",
+        "footnotes_and_intros": "CEV Genesis 1 in the live Reader flow renders its section intro block, 5 footnote markers, footnote panel, 31 verses",
+        "slug_fix": "#/v/KJV/1Sam/3 (OSIS code in URL) resolves to the 1-samuel static slug and renders 21 verses from the mirror",
+        "worker_routes": "/api/v1/versions/KJV/books (66 books), /search?q=light (50 results), /random all return 200 after the off-by-one fix (previously all 404)",
+        "static_mirror_still_intact": "/static-data/index.json (10 versions) and /static-data/kjv/john/3.json return 200 application/json; static KJV John 3 == API KJV John 3 (0 footnotes in both — source has none)"
+      },
+      "verified_utc": "2026-09-07"
+    }
   },
   "last_updated_utc": "2026-09-07",
   "tasks": [
