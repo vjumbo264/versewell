@@ -1,7 +1,13 @@
 /**
- * VerseWell REST API worker (task-07).
+ * VerseWell REST API worker (static-only migration, task-06).
  *
- * Routes (all under /api/v1/):
+ * The API is now backed ENTIRELY by the static JSON tree the generator writes
+ * to site/static-data/ and Cloudflare Pages serves at
+ *   https://versewell.pages.dev/static-data/
+ * There is NO database, NO KV, and no quota-limited storage anywhere in this
+ * path — the Worker is a thin read-only layer over those public static files.
+ *
+ * Routes (all under /api/v1/), response shapes unchanged from the D1 version:
  *   GET /api/v1/versions
  *   GET /api/v1/versions/:version/books
  *   GET /api/v1/versions/:version/:book
@@ -11,9 +17,18 @@
  *   GET /api/v1/versions/:version/random
  *
  * Chapter/verse responses nest `intro` and per-verse `footnotes`; pass
- * ?notes=false to omit them. CORS is open (public API). All SQL is
- * parameterized. Errors use a consistent shape: {"error": {code, message}}.
+ * ?notes=false to omit them. CORS is open (public API). Errors use a
+ * consistent shape: {"error": {code, message}}.
+ *
+ * Fetch strategy: the canonical tree lives on the Pages origin (the only copy
+ * of the data). The Worker fetches the specific JSON file(s) it needs per
+ * request and caches parsed bodies in-module (per-isolate) with a short TTL,
+ * so warm isolates serve repeat reads with zero extra network hops. This
+ * keeps the Worker free-tier friendly (no asset-size limit pressure from the
+ * ~60MB tree) and guarantees the API and the website read the SAME bytes.
  */
+
+const STATIC_BASE = 'https://versewell.pages.dev/static-data';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -23,6 +38,35 @@ const CORS_HEADERS = {
 };
 
 const SEARCH_LIMIT = 50;
+const CACHE_TTL_MS = 5 * 60 * 1000; // per-isolate cache lifetime
+
+// In-module (per-isolate) cache: path -> { t, data }.
+const cache = new Map();
+
+async function fetchJson(path) {
+  const hit = cache.get(path);
+  const now = Date.now();
+  if (hit && now - hit.t < CACHE_TTL_MS) return hit.data;
+
+  const res = await fetch(`${STATIC_BASE}${path}`, {
+    headers: { Accept: 'application/json' },
+    cf: { cacheTtl: 300, cacheEverything: true },
+  });
+  if (res.status === 404) {
+    cache.set(path, { t: now, data: null });
+    return null;
+  }
+  if (!res.ok) throw new Error(`static fetch failed: ${res.status} for ${path}`);
+  const ct = res.headers.get('content-type') || '';
+  if (!ct.includes('application/json')) {
+    // Pages SPA fallback returns text/html for unknown paths — treat as miss.
+    cache.set(path, { t: now, data: null });
+    return null;
+  }
+  const data = await res.json();
+  cache.set(path, { t: now, data });
+  return data;
+}
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -38,32 +82,29 @@ function json(data, status = 200) {
 function fail(status, code, message) {
   return json({ error: { code, message } }, status);
 }
-
 function badRequest(message) {
   return fail(400, 'bad_request', message);
 }
-
 function notFound(message) {
   return fail(404, 'not_found', message);
 }
 
-async function getVersion(db, code) {
-  return db
-    .prepare('SELECT code, name, language, description, has_footnotes, has_intros, verse_count FROM versions WHERE code = ?1')
-    .bind(code.toUpperCase())
-    .first();
+/* ---------- static-tree accessors ---------- */
+
+async function getTopIndex() {
+  return fetchJson('/index.json'); // { versions: [...] } or null
 }
 
-async function listBooks(db, versionCode) {
-  const { results } = await db
-    .prepare(
-      `SELECT book, book_name, book_order, MAX(chapter) AS chapters, COUNT(*) AS verse_count
-       FROM verses WHERE version = ?1
-       GROUP BY book, book_name, book_order ORDER BY book_order`
-    )
-    .bind(versionCode)
-    .all();
-  return results;
+async function getVersion(code) {
+  const idx = await getTopIndex();
+  if (!idx) return null;
+  const up = String(code).toUpperCase();
+  return idx.versions.find((v) => v.code.toUpperCase() === up) || null;
+}
+
+async function getVersionIndex(versionCode) {
+  // { version, name, books: [{book, book_name, book_order, chapters, verse_count, slug}] }
+  return fetchJson(`/${versionCode.toLowerCase()}/index.json`);
 }
 
 function normalizeBookParam(raw) {
@@ -79,184 +120,113 @@ function findBook(books, param) {
   );
 }
 
-async function getFootnotes(db, version, book, chapter) {
-  const { results } = await db
-    .prepare(
-      'SELECT verse, marker, note_text FROM footnotes WHERE version = ?1 AND book = ?2 AND chapter = ?3 ORDER BY verse, marker'
-    )
-    .bind(version, book, chapter)
-    .all();
-  const byVerse = {};
-  for (const row of results) {
-    (byVerse[row.verse] = byVerse[row.verse] || []).push({ marker: row.marker, text: row.note_text });
-  }
-  return byVerse;
+function bookForChapter(versionIndex, bookRow) {
+  return bookRow;
 }
 
-async function getIntro(db, version, book, chapter) {
-  const row = await db
-    .prepare(
-      'SELECT start_verse, end_verse, intro_text FROM section_intros WHERE version = ?1 AND book = ?2 AND chapter = ?3 ORDER BY start_verse LIMIT 1'
-    )
-    .bind(version, book, chapter)
-    .first();
-  if (!row) return null;
-  return { start_verse: row.start_verse, end_verse: row.end_verse, text: row.intro_text };
-}
+/* ---------- route handlers (static-backed) ---------- */
 
-async function chapterNavigation(db, version, bookRow, chapter) {
-  let prev = null;
-  let next = null;
-  if (chapter > 1) {
-    prev = { book: bookRow.book, chapter: chapter - 1 };
-  } else {
-    const p = await db
-      .prepare(
-        `SELECT book, MAX(chapter) AS mc FROM verses WHERE version = ?1 AND book_order < ?2
-         GROUP BY book, book_order ORDER BY book_order DESC LIMIT 1`
-      )
-      .bind(version, bookRow.book_order)
-      .first();
-    if (p) prev = { book: p.book, chapter: p.mc };
-  }
-  if (chapter < bookRow.chapters) {
-    next = { book: bookRow.book, chapter: chapter + 1 };
-  } else {
-    const n = await db
-      .prepare(
-        `SELECT book FROM verses WHERE version = ?1 AND book_order > ?2
-         GROUP BY book, book_order ORDER BY book_order LIMIT 1`
-      )
-      .bind(version, bookRow.book_order)
-      .first();
-    if (n) next = { book: n.book, chapter: 1 };
-  }
-  return { prev, next };
-}
-
-async function handleChapter(db, versionRow, bookRow, chapter, wantNotes) {
-  const { results: verses } = await db
-    .prepare('SELECT verse, text FROM verses WHERE version = ?1 AND book = ?2 AND chapter = ?3 ORDER BY verse')
-    .bind(versionRow.code, bookRow.book, chapter)
-    .all();
-  if (!verses.length) {
+async function handleChapter(versionRow, versionIndex, bookRow, chapter, wantNotes) {
+  const data = await fetchJson(
+    `/${versionRow.code.toLowerCase()}/${bookRow.slug}/${chapter}.json`
+  );
+  if (!data) {
     return notFound(`Chapter ${chapter} not found in ${bookRow.book_name} (${versionRow.code}).`);
   }
-
-  let footnotes = {};
-  let intro = null;
-  if (wantNotes) {
-    [footnotes, intro] = await Promise.all([
-      getFootnotes(db, versionRow.code, bookRow.book, chapter),
-      getIntro(db, versionRow.code, bookRow.book, chapter),
-    ]);
-  }
-  const navigation = await chapterNavigation(db, versionRow.code, bookRow, chapter);
-
+  // Static chapter payload matches the API shape; honor ?notes=false by
+  // stripping the intro and per-verse footnotes the file always embeds.
+  const verses = data.verses.map((v) =>
+    wantNotes ? v : { verse: v.verse, text: v.text }
+  );
   return json({
     version: versionRow.code,
-    book: bookRow.book,
-    book_name: bookRow.book_name,
-    chapter,
-    ...(wantNotes ? { intro } : {}),
-    verses: verses.map((v) => ({
-      verse: v.verse,
-      text: v.text,
-      ...(wantNotes && footnotes[v.verse] ? { footnotes: footnotes[v.verse] } : {}),
-    })),
-    navigation,
+    book: data.book,
+    book_name: data.book_name,
+    chapter: data.chapter,
+    ...(wantNotes ? { intro: data.intro ?? null } : {}),
+    verses,
+    navigation: data.navigation,
   });
 }
 
-async function handleVerse(db, versionRow, bookRow, chapter, verseNum, wantNotes) {
-  const row = await db
-    .prepare('SELECT verse, text FROM verses WHERE version = ?1 AND book = ?2 AND chapter = ?3 AND verse = ?4')
-    .bind(versionRow.code, bookRow.book, chapter, verseNum)
-    .first();
-  if (!row) {
+async function handleVerse(versionRow, bookRow, chapter, verseNum, wantNotes) {
+  const data = await fetchJson(
+    `/${versionRow.code.toLowerCase()}/${bookRow.slug}/${chapter}.json`
+  );
+  if (!data) {
+    return notFound(`Chapter ${chapter} not found in ${bookRow.book_name} (${versionRow.code}).`);
+  }
+  const v = data.verses.find((x) => x.verse === verseNum);
+  if (!v) {
     return notFound(`Verse ${bookRow.book_name} ${chapter}:${verseNum} not found (${versionRow.code}).`);
   }
-  let notes = [];
   let intro = null;
-  if (wantNotes) {
-    const { results } = await db
-      .prepare(
-        'SELECT marker, note_text FROM footnotes WHERE version = ?1 AND book = ?2 AND chapter = ?3 AND verse = ?4 ORDER BY marker'
-      )
-      .bind(versionRow.code, bookRow.book, chapter, verseNum)
-      .all();
-    notes = results.map((r) => ({ marker: r.marker, text: r.note_text }));
-    intro = await getIntro(db, versionRow.code, bookRow.book, chapter);
-    if (intro && !(intro.start_verse <= verseNum && verseNum <= intro.end_verse)) intro = null;
+  if (wantNotes && data.intro) {
+    const it = data.intro;
+    intro = it.start_verse <= verseNum && verseNum <= it.end_verse ? it : null;
   }
   return json({
     version: versionRow.code,
-    book: bookRow.book,
-    book_name: bookRow.book_name,
-    chapter,
-    verse: row.verse,
-    text: row.text,
-    ...(wantNotes ? { footnotes: notes, intro } : {}),
+    book: data.book,
+    book_name: data.book_name,
+    chapter: data.chapter,
+    verse: v.verse,
+    text: v.text,
+    ...(wantNotes ? { footnotes: v.footnotes || [], intro } : {}),
   });
 }
 
-function escapeLike(q) {
-  return q.replace(/[\\%_]/g, (c) => '\\' + c);
-}
-
-async function handleSearch(db, versionRow, url) {
+async function handleSearch(versionRow, versionIndex, url) {
   const q = (url.searchParams.get('q') || '').trim();
   if (!q) return badRequest('Missing required query parameter: q');
   if (q.length > 200) return badRequest('Query too long (max 200 characters).');
-  const { results } = await db
-    .prepare(
-      `SELECT book, book_name, chapter, verse, text FROM verses
-       WHERE version = ?1 AND text LIKE ?2 ESCAPE '\\'
-       ORDER BY book_order, chapter, verse LIMIT ?3`
-    )
-    .bind(versionRow.code, `%${escapeLike(q)}%`, SEARCH_LIMIT)
-    .all();
+  const needle = q.toLowerCase();
+  // Single fetch of the compact per-version search index (search.json) —
+  // avoids one subrequest per chapter, which would exceed the Workers
+  // free-tier request limit for a 1,000+ chapter version.
+  const idx = await fetchJson(`/${versionRow.code.toLowerCase()}/search.json`);
+  const entries = (idx && idx.entries) || [];
+  const results = [];
+  for (const e of entries) {
+    if (e.text && e.text.toLowerCase().includes(needle)) {
+      results.push({
+        book: e.book,
+        book_name: e.book_name,
+        chapter: e.chapter,
+        verse: e.verse,
+        text: e.text,
+      });
+      if (results.length >= SEARCH_LIMIT) break;
+    }
+  }
   return json({
     version: versionRow.code,
     query: q,
     count: results.length,
     limit: SEARCH_LIMIT,
-    results: results.map((r) => ({
-      book: r.book,
-      book_name: r.book_name,
-      chapter: r.chapter,
-      verse: r.verse,
-      text: r.text,
-    })),
+    results,
   });
 }
 
-async function handleRandom(db, versionRow, wantNotes) {
-  const row = await db
-    .prepare(
-      'SELECT book, book_name, chapter, verse, text FROM verses WHERE version = ?1 ORDER BY RANDOM() LIMIT 1'
-    )
-    .bind(versionRow.code)
-    .first();
-  if (!row) return notFound(`Version ${versionRow.code} has no verses.`);
-  let notes = [];
-  if (wantNotes) {
-    const { results } = await db
-      .prepare(
-        'SELECT marker, note_text FROM footnotes WHERE version = ?1 AND book = ?2 AND chapter = ?3 AND verse = ?4 ORDER BY marker'
-      )
-      .bind(versionRow.code, row.book, row.chapter, row.verse)
-      .all();
-    notes = results.map((r) => ({ marker: r.marker, text: r.note_text }));
+async function handleRandom(versionRow, versionIndex, wantNotes) {
+  const books = versionIndex.books;
+  if (!books.length) return notFound(`Version ${versionRow.code} has no verses.`);
+  // Pick a random book, then a random chapter, then a random verse.
+  const b = books[Math.floor(Math.random() * books.length)];
+  const ch = 1 + Math.floor(Math.random() * b.chapters);
+  const data = await fetchJson(`/${versionRow.code.toLowerCase()}/${b.slug}/${ch}.json`);
+  if (!data || !data.verses.length) {
+    return notFound(`Version ${versionRow.code} has no verses.`);
   }
+  const v = data.verses[Math.floor(Math.random() * data.verses.length)];
   return json({
     version: versionRow.code,
-    book: row.book,
-    book_name: row.book_name,
-    chapter: row.chapter,
-    verse: row.verse,
-    text: row.text,
-    ...(wantNotes ? { footnotes: notes } : {}),
+    book: data.book,
+    book_name: data.book_name,
+    chapter: data.chapter,
+    verse: v.verse,
+    text: v.text,
+    ...(wantNotes ? { footnotes: v.footnotes || [] } : {}),
   });
 }
 
@@ -297,50 +267,59 @@ export default {
 
     // GET /api/v1/versions
     if (segments.length === 3) {
-      const { results } = await env.DB.prepare(
-        'SELECT code, name, language, description, has_footnotes, has_intros, verse_count, imported_at FROM versions ORDER BY code'
-      ).all();
+      const idx = await getTopIndex();
+      const versions = (idx && idx.versions) || [];
       return json({
-        versions: results.map((v) => ({
-          code: v.code,
-          name: v.name,
-          language: v.language,
-          description: v.description,
-          has_footnotes: !!v.has_footnotes,
-          has_intros: !!v.has_intros,
-          verse_count: v.verse_count,
-        })),
+        versions: versions
+          .slice()
+          .sort((a, b) => a.code.localeCompare(b.code))
+          .map((v) => ({
+            code: v.code,
+            name: v.name,
+            language: v.language,
+            description: v.description,
+            has_footnotes: !!v.has_footnotes,
+            has_intros: !!v.has_intros,
+            verse_count: v.verse_count,
+          })),
       });
     }
 
     const versionParam = segments[3];
-    const versionRow = await getVersion(env.DB, versionParam);
+    const versionRow = await getVersion(versionParam);
     if (!versionRow) return notFound(`Unknown version '${versionParam}'.`);
+    const versionIndex = await getVersionIndex(versionRow.code);
+    if (!versionIndex) return notFound(`Unknown version '${versionParam}'.`);
 
     // GET /api/v1/versions/:version/search?q=...
-    // Path segments: ['api','v1','versions',':version','search'] -> length 5.
     if (segments.length === 5 && segments[4] === 'search') {
-      return handleSearch(env.DB, versionRow, url);
+      return handleSearch(versionRow, versionIndex, url);
     }
     // GET /api/v1/versions/:version/random
     if (segments.length === 5 && segments[4] === 'random') {
-      return handleRandom(env.DB, versionRow, wantNotes);
+      return handleRandom(versionRow, versionIndex, wantNotes);
     }
     // NOTE: 'books', 'search' and 'random' are reserved path segments and never book names.
 
     // GET /api/v1/versions/:version/books
     if (segments.length === 5 && segments[4] === 'books') {
-      const books = await listBooks(env.DB, versionRow.code);
-      return json({ version: versionRow.code, books });
+      return json({
+        version: versionRow.code,
+        books: versionIndex.books.map((b) => ({
+          book: b.book,
+          book_name: b.book_name,
+          book_order: b.book_order,
+          chapters: b.chapters,
+          verse_count: b.verse_count,
+        })),
+      });
     }
-
-    const books = await listBooks(env.DB, versionRow.code);
 
     if (segments.length === 4) {
       return badRequest("Expected 'books', 'search', 'random', or a book name after the version.");
     }
 
-    const bookRow = findBook(books, segments[4]);
+    const bookRow = findBook(versionIndex.books, segments[4]);
     if (!bookRow) return notFound(`Unknown book '${decodeURIComponent(segments[4])}' for version ${versionRow.code}.`);
 
     // GET /api/v1/versions/:version/:book
@@ -362,7 +341,7 @@ export default {
 
     // GET /api/v1/versions/:version/:book/:chapter
     if (segments.length === 6) {
-      return handleChapter(env.DB, versionRow, bookRow, chapter, wantNotes);
+      return handleChapter(versionRow, versionIndex, bookRow, chapter, wantNotes);
     }
 
     const verseNum = Number(segments[6]);
@@ -372,7 +351,7 @@ export default {
 
     // GET /api/v1/versions/:version/:book/:chapter/:verse
     if (segments.length === 7) {
-      return handleVerse(env.DB, versionRow, bookRow, chapter, verseNum, wantNotes);
+      return handleVerse(versionRow, bookRow, chapter, verseNum, wantNotes);
     }
 
     return notFound('Unknown route.');

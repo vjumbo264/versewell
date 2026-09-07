@@ -42,7 +42,7 @@
     "fix_direction": "Single source of truth: move voice.sqlite3 into /bible-sources/, regenerate the FULL index.json (all 11 versions incl. VOICE) from /bible-sources/, commit that canonical index, and make BOTH the homepage and the Worker read from the same static tree. Add a CI check that fails loudly if any .sqlite in /bible-sources/ has no corresponding static entry (and vice-versa), so the index can never silently diverge from the source files again."
   },
   "architecture_decision": {
-    "worker_static_source": "PENDING (task-06 will finalize). Chosen approach: the Worker fetches the static JSON tree from the deployed Pages origin at request time (option A in the contract), with a small in-Worker cache. Rationale: zero duplication of the 60MB+ JSON tree into the Worker bundle (Workers asset-size limits make bundling the full tree impractical), single canonical copy of the data on Pages, free-tier friendly. Documented fully in task-06.",
+    "worker_static_source": "CHOSEN (task-06): the Worker fetches the static JSON tree from the deployed Pages origin (https://versewell.pages.dev/static-data) at request time, with a per-isolate in-module cache (5min TTL) + Cloudflare edge cache. The ~60MB tree cannot be bundled into a Worker (asset-size limit), so Pages remains the single canonical copy and the Worker is a thin read-only layer over it. Search uses a generator-emitted compact per-version search.json (~6MB raw / ~1.4MB gzip) so a query costs ONE fetch, not one-per-chapter (which exceeded the Workers free-tier subrequest limit and returned HTTP 500).",
     "response_shape_contract": "All /api/v1/* routes must return byte-for-byte identical response SHAPES to the pre-migration D1 Worker. Golden reference responses captured (versions, books, book, chapter, verse, search, random) before any change."
   },
   "tasks": [
@@ -101,16 +101,20 @@
     {
       "id": "task-06",
       "title": "Rewrite the Worker to serve every existing /api/v1/... route from static JSON instead of D1, preserving identical response shapes. Reimplement search as a static-file text scan.",
-      "status": "pending",
-      "notes": "",
+      "status": "done",
+      "notes": "Rewrote worker/index.js: all 7 /api/v1/* routes now read from the Pages static tree via fetchJson() with in-isolate caching; no D1/KV. Response shapes and error messages preserved verbatim (incl. ?notes=false omitting intro/footnotes keys, and ?notes=true verse intro gated to the intro's verse range). Search reimplemented as a static text scan over a new per-version search.json. generate_static.py now emits search.json per version.",
       "commits": [],
-      "files_modified": []
+      "files_modified": [
+        "worker/index.js",
+        "scripts/generate_static.py",
+        "site/static-data/*/search.json"
+      ]
     },
     {
       "id": "task-07",
       "title": "Verify live that the rewritten Worker returns identical-shaped, correct responses for versions/books/chapter/verse/search/random, cross-checked against known chapters for exact content match with the static tree.",
-      "status": "pending",
-      "notes": "",
+      "status": "done",
+      "notes": "LIVE parity check vs pre-migration golden D1 responses: 14/14 PASS \u2014 versions/books/book/chapter/verse/search/random all identical shape; KJV John3 chapter, CEV John1 (notes=false), CEV John1:5 (footnote+intro) byte-identical; search 'love' returns identical count(50), identical first-5 ordering, identical first-result text. VOICE now served by the API. Worker Version ID a5753ff6.",
       "commits": [],
       "files_modified": []
     },

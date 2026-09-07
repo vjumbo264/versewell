@@ -202,6 +202,31 @@ def generate_version(importer, path, out_root):
     }
     changed += write_if_changed(os.path.join(version_dir, "index.json"), version_index)
 
+    # Compact single-file search index: every verse's text plus its location,
+    # so the Worker's /search route can scan a version with ONE fetch instead
+    # of one fetch per chapter (a thousand+ subrequests would blow the Workers
+    # free-tier request limit). Shape: {version, entries:[{book,book_name,
+    # chapter,verse,text}]}. ~1-2 MB gzip per version — trivially cacheable.
+    search_entries = [
+        {
+            "book": r["book"],
+            "book_name": r["book_name"],
+            "chapter": r["chapter"],
+            "verse": r["verse"],
+            "text": r["text"],
+        }
+        for r in con.execute(
+            "SELECT v.book, b.book_name, v.chapter, v.verse, v.text "
+            "FROM verses v JOIN (SELECT DISTINCT book, book_name, book_order FROM verses WHERE version=?) b "
+            "  ON b.book = v.book "
+            "WHERE v.version=? ORDER BY b.book_order, v.chapter, v.verse",
+            (code, code),
+        )
+    ]
+    changed += write_if_changed(
+        os.path.join(version_dir, "search.json"), {"version": code, "entries": search_entries}
+    )
+
     top = {
         "code": ver["code"],
         "name": ver["name"],
