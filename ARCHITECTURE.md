@@ -241,3 +241,74 @@ shaped by `schema.sql`, so output is byte-for-byte identical to what the API
 serves. Idempotent: files are only rewritten on content change. A new version
 dropped into `/bible-sources/` is readable via this path — and therefore via
 the Worker and the website — on the very next Pages deploy.
+
+---
+
+## §8. Chapter audio narration (fixed-scope feature)
+
+Each chapter of a **fixed, closed set of versions** has an AI-narrated audio
+file, generated once offline and committed into the repo alongside the static
+JSON mirror — never generated on demand, never regenerated on deploy.
+
+### Scope (closed allowlist)
+
+`AUDIO_STATE.json.audio_enabled_versions` is the permanent allowlist, captured
+from the exact contents of `/bible-sources/` when the feature was built:
+`AMP, CEV, GW, KJV, MSG, NIV, NKJV, NLT, NLV, TLB, TPT, VOICE` (12 versions,
+VOICE included after `voice.sqlite3` was moved out of staging).
+**A version added to `/bible-sources/` later NEVER automatically receives
+audio** — `scripts/generate_audio.py` enforces the allowlist at runtime, and
+`generate_static.py` only emits a non-null `audio_url` for allowlisted codes.
+
+### Synthesis (ported verbatim from ClipForge `pipeline/stage_b/voiceover.py`)
+
+- Engine: Microsoft Edge TTS via `edge-tts` (`edge_tts.Communicate`), no API key.
+- Retry: 3 attempts, linear backoff (2 s × attempt).
+- Normalize: ffmpeg → 24 kHz mono `pcm_s16le` WAV.
+- Mastering: ClipForge's `speech_clarity_v1` chain unchanged — highpass 70 Hz
+  (2 poles), +1.5 dB presence EQ at 3 kHz (Q 1.1), acompressor 1.5:1
+  (threshold 0.125, attack 15, release 120), two-pass EBU R128 loudnorm
+  targeting **-16 LUFS / 7 LU / -1.5 dBTP**, final `alimiter` 0.84.
+- VerseWell overrides: **rate `+0%`** (calm long-form Scripture pace — NOT
+  ClipForge's brisk `+20%`), final storage format **MP3 96 kbps mono 24 kHz**
+  (repo-size conscious vs raw WAV).
+
+### Voice assignment (distinct voice per version, alternating gender)
+
+Versions sorted alphabetically; voices assigned Male, Female, Male, …
+Calm narrator/conversational styles only (energetic/casual voices excluded):
+
+| version | voice | gender |
+|---|---|---|
+| AMP | en-US-AndrewNeural | M |
+| CEV | en-US-AvaNeural | F |
+| GW | en-US-ChristopherNeural | M |
+| KJV | en-GB-SoniaNeural | F |
+| MSG | en-US-EricNeural | M |
+| NIV | en-US-JennyNeural | F |
+| NKJV | en-GB-RyanNeural | M |
+| NLT | en-US-MichelleNeural | F |
+| NLV | en-US-DavisNeural | M |
+| TLB | en-US-AriaNeural | F |
+| TPT | en-US-RogerNeural | M |
+| VOICE | en-US-NancyNeural | F |
+
+### Storage, trigger, API surface
+
+- Files: `site/static-data/{version_lower}/{book_slug}/{chapter}.mp3`
+  (colocated with the chapter JSON, deployed by Pages with the same tree).
+- Trigger: `.github/workflows/generate-audio.yml` — **workflow_dispatch
+  only**, idempotent (`--skip-existing` skips any chapter whose MP3 is
+  committed), commits results back to `main`, supports partial runs via
+  `versions` / `max_chapters` inputs for the 6 h job budget.
+- Chapter JSON (static mirror and Worker) carries `audio_url` — the MP3 path,
+  or `null` for non-allowlisted versions / not-yet-generated chapters. The
+  Reader renders an `<audio>` player only when `audio_url` is non-null.
+
+### Canonical OT/NT classification (Part 2)
+
+Every book in a version's `index.json` carries a `testament` field (`OT`/`NT`)
+derived from the fixed canonical OSIS lists in `generate_static.py` — never
+from `book_order`, which is version-local (TPT numbers its 30 books 1..30
+starting at Psalms, which previously mis-filed Matt..Rev under 'Old
+Testament'). Clients group strictly by `testament`.

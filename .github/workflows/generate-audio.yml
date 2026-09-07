@@ -1,0 +1,91 @@
+name: generate-audio
+
+# Chapter audio narration workflow (see AUDIO_STATE.json).
+#
+# workflow_dispatch ONLY — audio synthesis is expensive and slow, so it never
+# runs on push. Idempotent: any chapter whose .mp3 is already committed is
+# skipped, so re-running picks up interrupted work with no duplication.
+#
+# After a successful run, the workflow commits any newly-generated .mp3 files
+# back into main under site/static-data/{version}/{book_slug}/{chapter}.mp3,
+# which the normal deploy.yml then publishes with the next Pages deploy.
+
+on:
+  workflow_dispatch:
+    inputs:
+      versions:
+        description: "Space-separated subset of allowlisted version codes (blank = all in scope)."
+        required: false
+        default: ""
+      max_chapters:
+        description: "Stop after N newly-generated chapters this run (blank = as many as fit)."
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: generate-audio
+  cancel-in-progress: false
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          ffmpeg -version | head -1
+
+      - name: Install edge-tts
+        run: pip install edge-tts
+
+      # generate_static.py must run first so per-chapter JSON files exist —
+      # the audio script reads their verse text as the narration source.
+      - name: Ensure static JSON mirror is fresh
+        run: python3 scripts/generate_static.py
+
+      - name: Generate audio (idempotent, skips existing)
+        run: |
+          set -e
+          ARGS=()
+          if [ -n "${{ inputs.versions }}" ]; then
+            ARGS+=(--versions ${{ inputs.versions }})
+          fi
+          if [ -n "${{ inputs.max_chapters }}" ]; then
+            ARGS+=(--max-chapters "${{ inputs.max_chapters }}")
+          fi
+          python3 scripts/generate_audio.py "${ARGS[@]}"
+
+      # Re-run generate_static.py so audio_url fields point at the just-created
+      # MP3s (the generator scans the sibling .mp3 to decide audio_url).
+      - name: Refresh chapter JSON audio_url fields
+        run: python3 scripts/generate_static.py
+
+      - name: Commit generated audio + refreshed JSON
+        run: |
+          git config user.name  "versewell-audio-bot"
+          git config user.email "versewell-audio-bot@users.noreply.github.com"
+          git add site/static-data
+          if git diff --cached --quiet; then
+            echo "No new audio produced this run."
+            exit 0
+          fi
+          NEW_MP3=$(git diff --cached --name-only | grep -c '\.mp3$' || true)
+          git commit -m "audio: generate ${NEW_MP3} chapter mp3(s) [skip ci]"
+          git push origin HEAD:main

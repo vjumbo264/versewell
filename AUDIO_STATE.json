@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "work_complete": false,
+  "notes": [
+    "Audio generation feature: chapter-level Edge TTS narration for a FIXED allowlist.",
+    "ClipForge is the reference TTS implementation. Ported verbatim from pipeline/stage_b/voiceover.py (curated Edge neural catalog, 3-attempt retry with linear backoff, two-pass EBU R128 loudnorm speech_clarity_v1 chain, 24kHz mono s16le WAV internal contract).",
+    "VerseWell overrides: rate=+0% (calm long-form pace, NOT ClipForge's +20% brisk), MP3 96 kbps mono 24 kHz final for repo storage.",
+    "task-02 verified DONE prior to this session: voice.sqlite3 is already inside /bible-sources/ and no /bible-sources-staging/ directory exists — the earlier static-only migration commit '064e7771 static-only task-03/04: move voice.sqlite3 into /bible-sources/, remove staging' handled it."
+  ],
+  "clipforge_reference": {
+    "repo": "https://github.com/motionssalt/clipforge.git",
+    "path": "pipeline/stage_b/voiceover.py",
+    "captured_defaults": {
+      "engine": "edge-tts (edge_tts.Communicate)",
+      "sample_rate_hz": 24000,
+      "channels": 1,
+      "sample_width_bytes": 2,
+      "retry_attempts": 3,
+      "retry_backoff_seconds_base": 2.0,
+      "retry_backoff_kind": "linear (base * attempt)",
+      "pre_filters": "highpass=f=70:p=2, equalizer=f=3000:t=q:w=1.1:g=1.5, acompressor=threshold=0.125:ratio=1.5:attack=15:release=120:makeup=1.0",
+      "final_limiter": "alimiter=limit=0.84:attack=5:release=50:level=0",
+      "loudnorm_target_i_lufs": -16.0,
+      "loudnorm_target_lra_lu": 7.0,
+      "loudnorm_target_tp_dbtp": -1.5,
+      "clipforge_rate": "+20%",
+      "clipforge_volume": "+0%",
+      "clipforge_pitch": "+0Hz",
+      "preset_name": "speech_clarity_v1"
+    },
+    "verified_at": "2026-09-07"
+  },
+  "versewell_narration_overrides": {
+    "rate": "+0%",
+    "rate_rationale": "Calm, natural Scripture-reading pace. ClipForge's +20% is tuned for short-video brisk narration; long-form reading needs comfortable intelligibility over energy. +0% chosen after weighing that a slight -3%/-5% slowdown risked sounding sluggish on longer chapters (Ps 119, Isa 1) with no clarity gain over +0% Edge neural voices, which are already deliberately paced.",
+    "volume": "+0%",
+    "pitch": "+0Hz",
+    "output_format": "mp3",
+    "output_bitrate": "96k",
+    "output_channels": 1,
+    "output_sample_rate": 24000,
+    "output_format_rationale": "MP3 96 kbps mono 24 kHz balances intelligibility with repo storage. Raw WAV per chapter (~1.5 MB/min) would push the whole allowlist >40 GB; MP3 keeps it within acceptable git bounds (~11 GB estimate) while remaining above transparency threshold for spoken voice."
+  },
+  "audio_enabled_versions": ["AMP", "CEV", "GW", "KJV", "MSG", "NIV", "NKJV", "NLT", "NLV", "TLB", "TPT", "VOICE"],
+  "audio_enabled_versions_captured_from": "site/static-data/index.json version codes on 2026-09-07 after confirming /bible-sources/ contains: amp.sqlite3, cev.sqlite3, gw.sqlite3, kjv.sqlite3, msg.sqlite3, niv2011.sqlite3, nkjv.sqlite3, nlt.sqlite3, nlv.sqlite3, tlb.sqlite3, tpt.sqlite3, voice.sqlite3. Note: niv2011.sqlite3 is served under code NIV (per importer normalization) so 'NIV' is the correct allowlist token, not 'NIV2011'.",
+  "audio_enabled_versions_policy": "CLOSED, PERMANENT ALLOWLIST. Any version added to /bible-sources/ after 2026-09-07 must NEVER automatically receive audio. scripts/generate_audio.py enforces this at runtime; a new version silently absent from AUDIO_STATE.json.audio_enabled_versions is a no-op for audio.",
+  "voice_assignment": {
+    "algorithm": "Sort audio_enabled_versions alphabetically. Assign voices in order, alternating Male, Female, Male, Female, .... Only calm 'narrator' or 'conversational-style' Edge neural voices; ClipForge's energetic 'Guy' and casual 'Brian' explicitly excluded.",
+    "table": [
+      {"i": 1,  "version": "AMP",   "voice": "en-US-AndrewNeural",      "gender": "Male",   "style": "Warm, confident, conversational"},
+      {"i": 2,  "version": "CEV",   "voice": "en-US-AvaNeural",         "gender": "Female", "style": "Expressive, caring, conversational"},
+      {"i": 3,  "version": "GW",    "voice": "en-US-ChristopherNeural", "gender": "Male",   "style": "Reliable, authoritative narrator"},
+      {"i": 4,  "version": "KJV",   "voice": "en-GB-SoniaNeural",       "gender": "Female", "style": "Calm British narrator, fits KJV Anglo heritage"},
+      {"i": 5,  "version": "MSG",   "voice": "en-US-EricNeural",        "gender": "Male",   "style": "Rational, measured narrator"},
+      {"i": 6,  "version": "NIV",   "voice": "en-US-JennyNeural",       "gender": "Female", "style": "Friendly, considerate narrator"},
+      {"i": 7,  "version": "NKJV",  "voice": "en-GB-RyanNeural",        "gender": "Male",   "style": "Calm British narrator"},
+      {"i": 8,  "version": "NLT",   "voice": "en-US-MichelleNeural",    "gender": "Female", "style": "Friendly, polished narrator"},
+      {"i": 9,  "version": "NLV",   "voice": "en-US-DavisNeural",       "gender": "Male",   "style": "Confident, considerate narrator"},
+      {"i": 10, "version": "TLB",   "voice": "en-US-AriaNeural",        "gender": "Female", "style": "Positive, confident narrator"},
+      {"i": 11, "version": "TPT",   "voice": "en-US-RogerNeural",       "gender": "Male",   "style": "Lively narrator (paced by rate=+0%)"},
+      {"i": 12, "version": "VOICE", "voice": "en-US-NancyNeural",       "gender": "Female", "style": "Considerate, matter-of-fact narrator"}
+    ]
+  },
+  "audio_storage_layout": "site/static-data/{version_lower}/{book_slug}/{chapter}.mp3 (colocated with the existing per-chapter JSON, so Pages serves both from one deploy and the chapter JSON can reference a same-directory sibling).",
+  "audio_url_field_shape": "In each chapter JSON: audio_url = '/static-data/{version_lower}/{book_slug}/{chapter}.mp3' if the file exists, else null. Non-allowlisted versions ALWAYS emit null.",
+  "generation_workflow": {
+    "file": ".github/workflows/generate-audio.yml",
+    "trigger": "workflow_dispatch ONLY (never on push; audio generation is expensive)",
+    "idempotency": "scripts/generate_audio.py --skip-existing: any chapter whose target .mp3 already exists is skipped. Re-runs pick up interrupted work with no duplication.",
+    "budget_control": "workflow inputs 'max_chapters' and 'versions' let an operator do partial runs; unset = 'as many as fit in the 6h Actions job budget'."
+  },
+  "tasks": [
+    {"id": "task-01", "status": "done",        "desc": "Clone ClipForge and lift TTS engine/retry/mastering/voice catalog verbatim.", "artifacts": ["AUDIO_STATE.json.clipforge_reference"]},
+    {"id": "task-02", "status": "done",        "desc": "Verify voice.sqlite3 in /bible-sources/, staging dir absent.",              "verified_by": "ls of bible-sources shows voice.sqlite3; bible-sources-staging/ does not exist."},
+    {"id": "task-03", "status": "done",        "desc": "Write closed audio_enabled_versions allowlist.",                              "artifacts": ["AUDIO_STATE.json.audio_enabled_versions"]},
+    {"id": "task-04", "status": "done",        "desc": "Assign one distinct Edge voice per version, alternating gender.",              "artifacts": ["AUDIO_STATE.json.voice_assignment", "ARCHITECTURE.md §8"]},
+    {"id": "task-05", "status": "done",        "desc": "Build scripts/generate_audio.py porting ClipForge synthesis + retry + WAV normalize + speech_clarity_v1 mastering, with rate=+0% and MP3 final.", "artifacts": ["scripts/generate_audio.py"]},
+    {"id": "task-06", "status": "done",        "desc": "Add workflow_dispatch GitHub Actions workflow for idempotent audio generation and commit-back to main.", "artifacts": [".github/workflows/generate-audio.yml"]},
+    {"id": "task-07", "status": "done",        "desc": "Add audio_url to chapter JSON (static mirror + Worker), null when unavailable; wire Reader player with graceful 'not available' state.", "artifacts": ["scripts/generate_static.py", "worker/index.js", "site/app.js", "site/style.css"]},
+    {"id": "task-08", "status": "done",        "desc": "Update API docs + ARCHITECTURE.md + README to document audio feature and fixed scope.", "artifacts": ["site/app.js (renderDocs)", "ARCHITECTURE.md", "README.md"]},
+    {"id": "task-09", "status": "done",        "desc": "Fix Part 2 OT/NT grouping bug: classify each book by canonical OSIS identity, not version-local book_order.", "artifacts": ["scripts/generate_static.py (CANONICAL_OT_OSIS/CANONICAL_NT_OSIS + testament field)", "site/app.js (renderHome uses testament, not book_order)"], "root_cause": "TPT sqlite assigns books.number 1..30 starting at Ps; the site's OT/NT filter used b.book_order<=39 which is version-local and therefore put all TPT books (Ps..Rev) under 'Old Testament'."},
+    {"id": "task-10", "status": "in_progress", "desc": "Run full audio generation workflow at least once and re-verify all 7 First-Priority checks live; only then set work_complete=true.", "resume_state": "Code + workflow + Part-2 fix are shipped to main. Next session must: (1) trigger 'Generate audio' workflow via workflow_dispatch on main, wait for it to commit generated MP3s (may need multiple runs for the full allowlist within a 6h budget); (2) once deploy.yml republishes, run First-Priority checks 1-7 live against https://versewell.pages.dev/; (3) fix any regressions; (4) set work_complete=true and push. Do NOT set work_complete=true until every check independently passes on the live site."}
+  ],
+  "first_priority_verification": {
+    "1_allowlist_matches_bible_sources": "unconfirmed_live_after_deploy",
+    "2_two_versions_play_correct_content_distinct_voices": "unconfirmed_pending_audio_generation_run",
+    "3_non_allowlist_version_shows_no_player": "unconfirmed_live_after_deploy",
+    "4_mastering_applied_audibly": "unconfirmed_pending_audio_generation_run",
+    "5_workflow_idempotent_on_rerun": "unconfirmed_pending_workflow_run_twice",
+    "6_previously_incomplete_version_split_ot_nt_correctly": "unconfirmed_live_after_deploy",
+    "7_no_other_version_book_listing_regressed": "unconfirmed_live_after_deploy"
+  }
+}

@@ -47,6 +47,52 @@ IMPORTER = os.path.join(HERE, "import.py")
 
 RESERVED_BOOK_SLUGS = {"books", "search", "random", "index"}  # mirror the API's reserved segments
 
+# ---------------------------------------------------------------------------
+# Canonical Old/New Testament identity (Part 2 fix).
+#
+# A book's testament is a property of the BOOK ITSELF (its OSIS code in the
+# 66-book canon), NEVER of the version it appears in. The previous client-side
+# rule (book_order <= 39) broke for incomplete versions whose source assigns
+# its own 1..N book numbers — e.g. TPT numbers Psalms=1 .. Revelation=30, so
+# Matthew..Revelation (order 4..30) were mis-filed under 'Old Testament'.
+# The generator now stamps every book with a canonical `testament` field so
+# clients never have to re-derive this from version-local ordering.
+# ---------------------------------------------------------------------------
+CANONICAL_OT_OSIS = {
+    "Gen", "Exod", "Lev", "Num", "Deut", "Josh", "Judg", "Ruth",
+    "1Sam", "2Sam", "1Kgs", "2Kgs", "1Chr", "2Chr", "Ezra", "Neh",
+    "Esth", "Job", "Ps", "Prov", "Eccl", "Song", "Isa", "Jer", "Lam",
+    "Ezek", "Dan", "Hos", "Joel", "Amos", "Obad", "Jonah", "Mic",
+    "Nah", "Hab", "Zeph", "Hag", "Zech", "Mal",
+}
+CANONICAL_NT_OSIS = {
+    "Matt", "Mark", "Luke", "John", "Acts", "Rom", "1Cor", "2Cor",
+    "Gal", "Eph", "Phil", "Col", "1Thess", "2Thess", "1Tim", "2Tim",
+    "Titus", "Phlm", "Heb", "Jas", "1Pet", "2Pet", "1John", "2John",
+    "3John", "Jude", "Rev",
+}
+
+
+def testament_of(osis_book):
+    """Canonical OT/NT classification by OSIS code — independent of any
+    version's completeness or its own book numbering."""
+    if osis_book in CANONICAL_NT_OSIS:
+        return "NT"
+    return "OT"  # OT set and any defensive default (all 66 are covered above)
+
+
+def load_audio_allowlist():
+    """Closed audio scope from AUDIO_STATE.json. A version absent from this
+    list NEVER gets an audio_url, even if MP3 files somehow exist for it."""
+    try:
+        with open(os.path.join(ROOT, "AUDIO_STATE.json"), encoding="utf-8") as fh:
+            return set(json.load(fh).get("audio_enabled_versions", []))
+    except OSError:
+        return set()
+
+
+AUDIO_ALLOWLIST = load_audio_allowlist()
+
 
 def load_importer():
     spec = importlib.util.spec_from_file_location("vw_import", IMPORTER)
@@ -135,6 +181,7 @@ def generate_version(importer, path, out_root):
             n += 1
         b["slug"] = s
         used.add(s)
+        b["testament"] = testament_of(b["book"])
 
     changed = 0
     version_dir = os.path.join(out_root, code.lower())
@@ -175,11 +222,20 @@ def generate_version(importer, path, out_root):
                 {"start_verse": r["start_verse"], "end_verse": r["end_verse"], "text": r["intro_text"]}
                 for r in intro_rows
             ]
+            # audio_url: committed narration MP3 for allowlisted versions
+            # only, null otherwise (never a dangling link).
+            mp3_path = os.path.join(version_dir, b["slug"], "%d.mp3" % ch)
+            audio_url = (
+                "/static-data/%s/%s/%d.mp3" % (code.lower(), b["slug"], ch)
+                if code in AUDIO_ALLOWLIST and os.path.exists(mp3_path)
+                else None
+            )
             payload = {
                 "version": code,
                 "book": b["book"],
                 "book_name": b["book_name"],
                 "chapter": ch,
+                "audio_url": audio_url,
                 "intros": intros or None,
                 "verses": verses,
                 "navigation": navigation(books_rows, b["book"], ch, b["chapters"]),
@@ -201,6 +257,7 @@ def generate_version(importer, path, out_root):
                 "chapters": b["chapters"],
                 "verse_count": b["verse_count"],
                 "slug": b["slug"],
+                "testament": b["testament"],
             }
             for b in books_rows
         ],

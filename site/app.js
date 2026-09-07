@@ -175,18 +175,26 @@ async function renderHome(params) {
     <p class="muted">Loading books…</p>`;
 
   const books = await loadBooks(version);
-  const ot = books.filter((b) => b.book_order <= 39);
-  const nt = books.filter((b) => b.book_order > 39);
+  // OT/NT membership is a property of the BOOK (canonical OSIS identity),
+  // never of the version's own book numbering. Incomplete versions like TPT
+  // number their books 1..30 starting at Psalms, so the old book_order<=39
+  // rule mis-filed their New Testament books under 'Old Testament'. The
+  // generator stamps each book with a canonical `testament` field; the
+  // book_order heuristic is kept only as a fallback for stale caches.
+  const testamentOf = (b) => b.testament || (b.book_order <= 39 ? 'OT' : 'NT');
+  const ot = books.filter((b) => testamentOf(b) === 'OT');
+  const nt = books.filter((b) => testamentOf(b) === 'NT');
   const grid = (list) =>
     `<div class="book-grid">${list
       .map((b) => `<a href="#/?v=${esc(version)}&book=${encRef(b.book_name)}">${esc(b.book_name)}</a>`)
       .join('')}</div>`;
+  const section = (title, list) => (list.length ? `<h2>${title}</h2>${grid(list)}` : '');
   view.innerHTML = `
     <h1>Read the Bible</h1>
     <p class="lede">Choose a translation, then a book and chapter. Section introductions and footnotes appear right in the text.</p>
     <div class="version-grid">${cards}</div>
-    <h2>Old Testament — ${esc(version)}</h2>${grid(ot)}
-    <h2>New Testament</h2>${grid(nt)}`;
+    ${section(`Old Testament — ${esc(version)}`, ot)}
+    ${section('New Testament', nt)}`;
 }
 
 async function renderChapterPicker(version, book) {
@@ -274,11 +282,20 @@ async function renderReader(version, bookParam, chapterStr) {
       ? `<a href="#/v/${esc(version)}/${encRef(target.book)}/${target.chapter}">${label}</a>`
       : `<a class="disabled">${label}</a>`;
 
+  // Chapter audio: render a player ONLY when the static mirror reports a
+  // real audio_url. Versions outside the fixed audio allowlist (and chapters
+  // not yet generated) return audio_url:null and the player is hidden
+  // entirely — never a broken/empty <audio> element.
+  const audioHtml = data.audio_url
+    ? `<div class="audio-player"><span class="audio-label">\u25B6 Listen — ${esc(version)}</span><audio controls preload="none" src="${esc(data.audio_url)}"></audio></div>`
+    : '';
+
   view.innerHTML = `
     <div class="reader-head">
       <h1>${esc(data.book_name)} ${data.chapter}</h1>
       <span class="reader-sub">${esc(version)}</span>
     </div>
+    ${audioHtml}
     <div class="chapter-nav">${nav(data.navigation.prev, '← Previous')}${nav(data.navigation.next, 'Next →')}</div>
     <div class="reader-body">${versesHtml}${trailingIntros}</div>
     <div class="chapter-nav">${nav(data.navigation.prev, '← Previous')}${nav(data.navigation.next, 'Next →')}</div>`;
@@ -362,7 +379,7 @@ function renderDocs() {
     <tr><td><code>GET /api/v1/versions</code></td><td>List all available Bible versions.</td></tr>
     <tr><td><code>GET /api/v1/versions/{version}/books</code></td><td>List books of a version (with chapter counts).</td></tr>
     <tr><td><code>GET /api/v1/versions/{version}/{book}</code></td><td>Book metadata (chapter count, verse count).</td></tr>
-    <tr><td><code>GET /api/v1/versions/{version}/{book}/{chapter}</code></td><td>Full chapter: verses plus any section intro and footnotes.</td></tr>
+    <tr><td><code>GET /api/v1/versions/{version}/{book}/{chapter}</code></td><td>Full chapter: verses plus any section intro and footnotes, and <code>audio_url</code> (narrated MP3 path, or <code>null</code>).</td></tr>
     <tr><td><code>GET /api/v1/versions/{version}/{book}/{chapter}/{verse}</code></td><td>A single verse, with its footnotes.</td></tr>
     <tr><td><code>GET /api/v1/versions/{version}/search?q=…</code></td><td>Search verse text (first ${50} matches).</td></tr>
     <tr><td><code>GET /api/v1/versions/{version}/random</code></td><td>A random verse.</td></tr>
@@ -442,6 +459,9 @@ curl ${origin}/static-data/kjv/john/3.json</pre>
   ]
 }</pre>
   </div>
+
+  <h2>Chapter audio</h2>
+  <p>Chapter responses include <code>audio_url</code> — a path to an AI-narrated MP3 of the chapter, or <code>null</code> when unavailable. Audio currently exists ONLY for this fixed set of versions: <code>AMP, CEV, GW, KJV, MSG, NIV, NKJV, NLT, NLV, TLB, TPT, VOICE</code>. Every chapter of any other version returns <code>null</code>. Narration is generated offline (Microsoft Edge neural TTS, loudness-normalized to -16 LUFS) and committed as static files under <code>/static-data/{version}/{book}/{chapter}.mp3</code> — it is never generated on demand, and each version has its own distinct narrator voice.</p>
 
   <h2>Errors</h2>
   <p>Errors use a consistent JSON shape with a conventional HTTP status code:</p>

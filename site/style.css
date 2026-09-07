@@ -208,3 +208,8 @@ code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
   .chapter-grid { grid-template-columns: repeat(8, 1fr); }
   .reader-body { font-size: 1.18rem; }
 }
+
+/* Chapter audio player */
+.audio-player{display:flex;align-items:center;gap:.75rem;margin:1rem 0;padding:.6rem .9rem;border:1px solid var(--border,#ccc);border-radius:.6rem;background:var(--bg-soft,transparent)}
+.audio-player .audio-label{font-size:.85rem;font-weight:600;white-space:nowrap}
+.audio-player audio{flex:1;height:2rem;min-width:0}
