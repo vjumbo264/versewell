@@ -318,17 +318,18 @@ export default {
     if (!versionRow) return notFound(`Unknown version '${versionParam}'.`);
 
     // GET /api/v1/versions/:version/search?q=...
-    if (segments.length === 4 && segments[3] && url.pathname.endsWith('/search')) {
+    // Path segments: ['api','v1','versions',':version','search'] -> length 5.
+    if (segments.length === 5 && segments[4] === 'search') {
       return handleSearch(env.DB, versionRow, url);
     }
     // GET /api/v1/versions/:version/random
-    if (segments.length === 4 && segments[3] && url.pathname.endsWith('/random')) {
+    if (segments.length === 5 && segments[4] === 'random') {
       return handleRandom(env.DB, versionRow, wantNotes);
     }
-    // NOTE: 'search' and 'random' are reserved path segments and never book names.
+    // NOTE: 'books', 'search' and 'random' are reserved path segments and never book names.
 
     // GET /api/v1/versions/:version/books
-    if (segments.length === 4 && url.pathname.endsWith('/books')) {
+    if (segments.length === 5 && segments[4] === 'books') {
       const books = await listBooks(env.DB, versionRow.code);
       return json({ version: versionRow.code, books });
     }
