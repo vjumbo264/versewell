@@ -4,12 +4,6 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
-  # D1 free tier allows ~100k row-writes/day; a full multi-version import is
-  # ~300k rows and must span several days. This daily run resumes the import
-  # automatically (apply_d1.py skips versions already fully imported and stops
-  # gracefully when the day's quota is spent).
-  schedule:
-    - cron: "17 2 * * *"
 
 env:
   CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -21,12 +15,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Import new/changed Bible versions into D1
-        run: python3 scripts/apply_d1.py
-
-      # Static JSON mirror is the source of truth; build it first so the Worker
-      # (which reads the static tree) and the consistency check see fresh data.
-      - name: Build static JSON mirror (quota-free)
+      # Static JSON mirror is the single source of truth (no D1, no quota).
+      # Build it from /bible-sources/ first so the Worker (which reads the
+      # static tree) and the consistency check see fresh data.
+      - name: Build static JSON mirror
         run: python3 scripts/generate_static.py
 
       # Fail loudly if any /bible-sources/*.sqlite has no static mirror entry

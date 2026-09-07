@@ -1,4 +1,5 @@
--- VerseWell unified D1 schema (task-03)
+-- VerseWell unified schema (STATIC-ONLY: shapes the in-memory DB that
+-- scripts/generate_static.py builds the static JSON tree from. No live DB exists.
 -- One schema for every Bible version; footnotes/section_intros are simply
 -- empty for versions that lack them. See ARCHITECTURE.md for source mapping.
 

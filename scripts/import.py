@@ -1,25 +1,23 @@
 #!/usr/bin/env python3
 """
-VerseWell importer (task-04).
+VerseWell importer — source->unified mapping (STATIC-ONLY architecture).
 
-Reads every *.sqlite3 file in /bible-sources/, maps it onto the unified
-schema (see ARCHITECTURE.md), and emits SQL statements that can be applied to
-Cloudflare D1 (via scripts/apply_d1.py or `wrangler d1 execute --file`).
+Reads every *.sqlite3 file in /bible-sources/ and maps it onto the unified
+schema (see ARCHITECTURE.md). This module is the single place where every
+per-source quirk lives (CEV +1 chapter shift, MSG merged verses, fen- vs !f.
+footnotes, the global per-book fen counter, section-heading stripping, intro
+extraction, primary-key dedup).
 
-Usage:
-  python3 scripts/import.py                 # import all new/changed sources
-  python3 scripts/import.py --all           # force re-import everything
-  python3 scripts/import.py amp.sqlite3     # import one file
+It is consumed by scripts/generate_static.py, which runs import_file() over
+an in-memory SQLite DB shaped by the root schema.sql and writes the static
+JSON tree (site/static-data/) that is the platform's single source of truth.
+There is NO database target anymore: the historical Cloudflare D1 import path
+(scripts/apply_d1.py) was removed in the static-only migration.
 
-Change detection: each file's SHA-256 is compared against
-versions.source_sha256 already in D1 (state read through the D1 API by
-apply_d1.py and passed in via STATE_FILE). New or changed files are
-(re)imported; unchanged files are skipped, so deploys are incremental.
-
-Output: writes /tmp/versewell_import/<code>.sql plus a manifest.json listing
-what was imported/skipped. SQL is emitted with parameterized-escaped literals
-(single-quote doubling) — the source files are trusted church exports, and
-this is a one-way batch import, but escaping is done uniformly regardless.
+import_file(path, out) -> writes the version's unified-schema INSERT
+statements to the file-like `out` and returns a metadata dict. SQL literals
+are escaped uniformly (single-quote doubling); the source files are trusted
+church exports.
 """
 import hashlib
 import html

@@ -1,28 +1,32 @@
 #!/usr/bin/env python3
 """
-VerseWell static-JSON mirror generator (static-mirror feature, task-03).
+VerseWell static-JSON generator — builds the platform's SINGLE SOURCE OF
+TRUTH (static-only architecture; there is no database).
 
-Reads the same /bible-sources/*.sqlite files the D1 importer reads and writes
-a plain-JSON mirror of the whole library into /static-data/, which Cloudflare
-Pages then serves as static assets. This path needs NO database and NO Worker
-at request time, and consumes none of D1's daily row-write quota.
+Reads every /bible-sources/*.sqlite file and writes a plain-JSON tree of the
+whole library into site/static-data/, which Cloudflare Pages serves as static
+assets and the Worker API reads at request time. This is the ONLY content
+pipeline: adding a new .sqlite to /bible-sources/ and pushing is the entire
+process required to make a version live on both the site and the API.
 
 Usage:
   python3 scripts/generate_static.py                # regenerate every version
   python3 scripts/generate_static.py kjv.sqlite3    # one file only
 
-CRITICAL — identical output to the D1 path: this script does NOT reimplement
-any source->unified mapping. It imports scripts/import.py and runs the exact
-same import_file() over an in-memory SQLite DB shaped by the root schema.sql
-(the unified D1 schema), then reads rows back out. Every quirk handled there
-(CEV +1 chapter shift, MSG merged verses, fen- vs !f. footnotes, the global
-per-book fen counter, section-heading stripping, intro extraction, dedup of
-colliding primary keys) is inherited automatically, so the static mirror is
-guaranteed byte-for-byte the same text the Worker API serves from D1.
+Single mapping, no duplication: this script does NOT reimplement any
+source->unified mapping. It imports scripts/import.py and runs the exact
+same import_file() over an in-memory SQLite DB shaped by the root schema.sql,
+then reads rows back out. Every quirk handled there (CEV +1 chapter shift,
+MSG merged verses, fen- vs !f. footnotes, the global per-book fen counter,
+section-heading stripping, intro extraction, primary-key dedup) is inherited
+automatically.
 
-JSON shapes intentionally reuse the Worker API response shapes (see
-ARCHITECTURE.md §7) so a consumer can swap between /api/v1/... and
-/static-data/... without code changes.
+Outputs per version: per-chapter files in the Worker API's chapter-response
+shape, a per-version index.json (books+slugs), and a compact single-file
+search.json the Worker's /search route scans in one fetch. The top-level
+site/static-data/index.json lists every version. JSON shapes intentionally
+reuse the Worker API response shapes (see ARCHITECTURE.md) so a consumer can
+swap between /api/v1/... and /static-data/... without code changes.
 
 Idempotency: each version's rows are rebuilt from scratch each run; a JSON
 file is only (re)written when its content differs, so re-running against an

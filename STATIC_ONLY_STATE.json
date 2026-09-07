@@ -121,10 +121,18 @@
     {
       "id": "task-08",
       "title": "Remove the D1 import step, scheduled job, schema, and D1 binding from Worker config. Delete the live D1 database via the Cloudflare API. Confirm via the Cloudflare API that it is actually gone.",
-      "status": "pending",
-      "notes": "",
+      "status": "done",
+      "notes": "Removed D1 import step + daily cron from deploy.yml; removed D1 binding from worker/wrangler.toml; git rm scripts/apply_d1.py and .d1_database_id; updated docstrings of schema.sql / generate_static.py / import.py to static-only (schema.sql KEPT \u2014 it shapes the in-memory DB the generator builds the static tree from). DELETED live D1 database versewell-db (960dbee2) via Cloudflare API \u2014 confirmed absent from account (only unrelated forgehouse50-db/codex_db remain). Redeployed Worker with zero bindings (Version ID e05ec62d); all routes incl. VOICE return 200 post-deletion.",
       "commits": [],
-      "files_modified": []
+      "files_modified": [
+        ".github/workflows/deploy.yml",
+        "worker/wrangler.toml",
+        "scripts/apply_d1.py (deleted)",
+        ".d1_database_id (deleted)",
+        "schema.sql",
+        "scripts/generate_static.py",
+        "scripts/import.py"
+      ]
     },
     {
       "id": "task-09",
