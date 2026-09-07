@@ -22,8 +22,16 @@ document.getElementById('theme-toggle').addEventListener('click', () => {
 });
 
 /* ---------------- API ---------------- */
+/* Fetch with a timeout: a stalled request (e.g. a network middlebox that
+ * accepts but never answers) rejects after `ms` so fallbacks can fire and
+ * the page never hangs on 'Loading…' forever. */
+function fetchTimeout(url, ms = 8000) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), ms);
+  return fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(t));
+}
 async function api(path) {
-  const res = await fetch(API_BASE + path);
+  const res = await fetchTimeout(API_BASE + path);
   const data = await res.json().catch(() => null);
   if (!res.ok) {
     const msg = data && data.error ? data.error.message : `HTTP ${res.status}`;
@@ -36,7 +44,7 @@ async function api(path) {
  * (SPA fallback), so a missing static file returns HTTP 200 HTML — we must
  * confirm a real JSON body, not just a 2xx status. */
 async function fetchStatic(path) {
-  const res = await fetch(path);
+  const res = await fetchTimeout(path);
   const ct = (res.headers.get('content-type') || '').toLowerCase();
   if (!res.ok || !ct.includes('application/json')) throw new Error('static miss');
   return res.json();
