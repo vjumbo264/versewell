@@ -1,0 +1,83 @@
+{
+  "feature": "Static JSON mirror of Bible text, generated from /bible-sources/*.sqlite files, deployed as Pages static assets at /static-data/",
+  "repo": "https://github.com/vjumbo264/versewell.git",
+  "feature_complete": false,
+  "last_updated_utc": "2026-09-07",
+  "tasks": [
+    {
+      "id": "task-01",
+      "title": "Read BUILD_STATE.json, ARCHITECTURE.md, and the existing D1 import script to understand schema-mapping logic, repo tooling conventions, and which versions exist in /bible-sources/ and D1. Create STATIC_MIRROR_STATE.json seeded with this task list. Commit, push, verify push on origin/main.",
+      "status": "pending",
+      "notes": "",
+      "commits": [],
+      "files_modified": []
+    },
+    {
+      "id": "task-02",
+      "title": "Design the exact /static-data/ directory layout and JSON shape (reusing the Worker API's chapter response shape). Document it in ARCHITECTURE.md.",
+      "status": "pending",
+      "notes": "",
+      "commits": [],
+      "files_modified": []
+    },
+    {
+      "id": "task-03",
+      "title": "Write the generator script: reads one .sqlite file, reuses/mirrors the existing schema-mapping logic, writes that version's full /static-data/{version}/... tree, idempotent on rerun.",
+      "status": "pending",
+      "notes": "",
+      "commits": [],
+      "files_modified": []
+    },
+    {
+      "id": "task-04",
+      "title": "Run the generator locally against every version currently in /bible-sources/ and commit the resulting /static-data/ tree.",
+      "status": "pending",
+      "notes": "",
+      "commits": [],
+      "files_modified": []
+    },
+    {
+      "id": "task-05",
+      "title": "Add the generator as a step in the existing GitHub Actions workflow, running for every file in /bible-sources/ on every relevant trigger, independent of and unblocked by the D1 import step's quota state.",
+      "status": "pending",
+      "notes": "",
+      "commits": [],
+      "files_modified": []
+    },
+    {
+      "id": "task-06",
+      "title": "Confirm the static JSON tree is actually deployed and fetchable from the live Pages URL after a real deploy.",
+      "status": "pending",
+      "notes": "",
+      "commits": [],
+      "files_modified": []
+    },
+    {
+      "id": "task-07",
+      "title": "Integrate the static mirror into the Reader page with fallback to the Worker API preserved. Verify the site still renders identically to before.",
+      "status": "pending",
+      "notes": "",
+      "commits": [],
+      "files_modified": []
+    },
+    {
+      "id": "task-08",
+      "title": "Add the static-mirror documentation section to the existing API docs page.",
+      "status": "pending",
+      "notes": "",
+      "commits": [],
+      "files_modified": []
+    },
+    {
+      "id": "task-09",
+      "title": "Run the full first-priority verification list against the live site: matching output vs Worker API, live fetchability, Reader page behavior, the queued-behind-quota-version-already-readable-statically case, and confirmation the existing D1/Worker pipeline is unaffected. Fix anything broken. Only once every task is genuinely done and verified live, mark feature_complete: true, commit, and push.",
+      "status": "pending",
+      "notes": "",
+      "commits": [],
+      "files_modified": []
+    }
+  ],
+  "decisions": [],
+  "concerns_for_human_review": [],
+  "resume_from": "task-01: read existing scripts (import.py, apply_d1.py), worker/index.js response shape, deploy.yml, site/app.js; then mark task-01 done and proceed to task-02."
+}
