@@ -67,7 +67,9 @@
     "file": ".github/workflows/generate-audio.yml",
     "trigger": "workflow_dispatch ONLY (never on push; audio generation is expensive)",
     "idempotency": "scripts/generate_audio.py --skip-existing: any chapter whose target .mp3 already exists is skipped. Re-runs pick up interrupted work with no duplication.",
-    "budget_control": "workflow inputs 'max_chapters' and 'versions' let an operator do partial runs; unset = 'as many as fit in the 6h Actions job budget'."
+    "budget_control": "workflow inputs 'max_chapters' and 'versions' let an operator do partial runs; unset = 'as many as fit in the 6h Actions job budget'.",
+    "auto_resume": "2026-09-08: each run is a 6h 'slice'. If chapters remain unfinished it re-dispatches itself (gh workflow run, inputs resume=cleanup=on, auto=1) using the AUDIO_RESUME_TOKEN secret (fine-grained PAT, actions:write). Chain repeats until the render completes. Without the secret the chain stops with a warning and the operator re-triggers manually.",
+    "self_cleanup": "When a resume-chain run (auto=1) finds 0 chapters remaining it refreshes audio_url fields, then git-rms .github/workflows/generate-audio.yml and scripts/generate_audio.py, commits and pushes — deleting all audio GENERATION artifacts from main while keeping the rendered .mp3 files and the audio_url JSON. A manual dispatch (auto != 1) never self-deletes."
   },
   "tasks": [
     {"id": "task-01", "status": "done",        "desc": "Clone ClipForge and lift TTS engine/retry/mastering/voice catalog verbatim.", "artifacts": ["AUDIO_STATE.json.clipforge_reference"]},

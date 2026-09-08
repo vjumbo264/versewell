@@ -270,8 +270,9 @@ audio** — `scripts/generate_audio.py` enforces the allowlist at runtime, and
   (threshold 0.125, attack 15, release 120), two-pass EBU R128 loudnorm
   targeting **-16 LUFS / 7 LU / -1.5 dBTP**, final `alimiter` 0.84.
 - VerseWell overrides: **rate `+0%`** (calm long-form Scripture pace — NOT
-  ClipForge's brisk `+20%`), final storage format **MP3 96 kbps mono 24 kHz**
-  (repo-size conscious vs raw WAV).
+  ClipForge's brisk `+20%`), final storage format **MP3 24 kbps mono 24 kHz**
+  — a speech-only encode that keeps narration intelligible while cutting
+  full-allowlist repo storage ~4x vs 96 kbps (~40 GB → ~10 GB).
 
 ### Voice assignment (distinct voice per version, alternating gender)
 
@@ -301,6 +302,17 @@ Calm narrator/conversational styles only (energetic/casual voices excluded):
   only**, idempotent (`--skip-existing` skips any chapter whose MP3 is
   committed), commits results back to `main`, supports partial runs via
   `versions` / `max_chapters` inputs for the 6 h job budget.
+- **Auto-resume (hands-free to completion):** each run is one 6 h slice; if
+  chapters remain it re-dispatches itself via the `AUDIO_RESUME_TOKEN` secret
+  (fine-grained PAT, `actions:write`) with inputs `resume=cleanup=on` /
+  `auto=1`, chaining slices until the render is complete. Without the secret
+  the chain stops with a warning and an operator re-triggers manually.
+- **Self-cleanup:** when a resume-chain run finds 0 chapters remaining it
+  refreshes `audio_url` fields, then `git rm`s the workflow file and
+  `scripts/generate_audio.py`, commits and pushes — removing all audio
+  GENERATION artifacts from `main` while keeping the rendered `.mp3` files and
+  the `audio_url` JSON the live site needs. A manual dispatch (`auto != 1`)
+  never self-deletes.
 - Chapter JSON (static mirror and Worker) carries `audio_url` — the MP3 path,
   or `null` for non-allowlisted versions / not-yet-generated chapters. The
   Reader renders an `<audio>` player only when `audio_url` is non-null.

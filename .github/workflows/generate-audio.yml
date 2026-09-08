@@ -2,13 +2,27 @@ name: generate-audio
 
 # Chapter audio narration workflow (see AUDIO_STATE.json).
 #
-# workflow_dispatch ONLY — audio synthesis is expensive and slow, so it never
-# runs on push. Idempotent: any chapter whose .mp3 is already committed is
-# skipped, so re-running picks up interrupted work with no duplication.
+# Fully hands-free render-to-completion pipeline:
+#   1. workflow_dispatch ONLY (audio synthesis is expensive/slow — never on push).
+#   2. Each run is a single 6h-budget "slice": it generates only chapters that
+#      have no committed .mp3 yet (idempotent), commits them back to main, and
+#      pushes.
+#   3. AUTO-RESUME: if chapters remain unfinished when the slice ends, the
+#      workflow re-dispatches ITSELF (workflow_dispatch with inputs
+#      resume=cleanup:off, auto=1) via gh so the next run picks up exactly
+#      where this one stopped. This repeats until every allowlisted chapter
+#      has audio. Requires the AUDIO_RESUME_TOKEN secret (a fine-grained PAT
+#      with actions:write); if it is absent the chain simply stops and the
+#      operator can re-trigger manually.
+#   4. SELF-CLEANUP: when a run finds NOTHING left to generate (a resume run
+#      with auto=1 — i.e. the chain has reached the end), it refreshes every
+#      audio_url field, deletes this workflow file and the generate_audio.py
+#      script, commits + pushes, and does NOT re-dispatch. All audio
+#      GENERATION artifacts are gone from main; the rendered .mp3 files and
+#      the audio_url JSON fields (which the live site needs) are kept.
 #
-# After a successful run, the workflow commits any newly-generated .mp3 files
-# back into main under site/static-data/{version}/{book_slug}/{chapter}.mp3,
-# which the normal deploy.yml then publishes with the next Pages deploy.
+# Safety: a manual re-dispatch (auto != 1) NEVER self-deletes, so an operator
+# spot-run can never remove the workflow.
 
 on:
   workflow_dispatch:
@@ -18,9 +32,17 @@ on:
         required: false
         default: ""
       max_chapters:
-        description: "Stop after N newly-generated chapters this run (blank = as many as fit)."
+        description: "Stop after N newly-generated chapters this run (blank = as many as fit in the 6h budget)."
         required: false
         default: ""
+      resume:
+        description: "cleanup=on -> self-delete when 0 chapters remain (internal, used by auto-resume chain)."
+        required: false
+        default: "cleanup=off"
+      auto:
+        description: "1 = fired by the auto-resume chain (allows self-cleanup); manual runs leave this blank."
+        required: false
+        default: "0"
 
 permissions:
   contents: write
@@ -29,10 +51,17 @@ concurrency:
   group: generate-audio
   cancel-in-progress: false
 
+env:
+  GH_TOKEN: ${{ secrets.AUDIO_RESUME_TOKEN }}
+  CLEANUP_ENABLED: ${{ inputs.resume == 'cleanup=on' && inputs.auto == '1' }}
+
 jobs:
   generate:
     runs-on: ubuntu-latest
     timeout-minutes: 350
+    outputs:
+      remaining: ${{ steps.plan.outputs.remaining }}
+      generated: ${{ steps.gen.outputs.generated }}
     steps:
       - name: Check out main
         uses: actions/checkout@v4
@@ -55,12 +84,30 @@ jobs:
       - name: Install edge-tts
         run: pip install edge-tts
 
-      # generate_static.py must run first so per-chapter JSON files exist —
-      # the audio script reads their verse text as the narration source.
+      # generate_static.py must run first so per-chapter JSON exists — the
+      # audio script reads its verse text as the narration source.
       - name: Ensure static JSON mirror is fresh
         run: python3 scripts/generate_static.py
 
-      - name: Generate audio (idempotent, skips existing)
+      - name: Plan — count chapters still needing audio
+        id: plan
+        run: |
+          set -e
+          ARGS=(--dry-run)
+          if [ -n "${{ inputs.versions }}" ]; then
+            ARGS+=(--versions ${{ inputs.versions }})
+          fi
+          OUT=$(python3 scripts/generate_audio.py "${ARGS[@]}")
+          echo "$OUT"
+          # Dry-run reports 'generated=N' where N = chapters WITHOUT audio.
+          REMAINING=$(echo "$OUT" | sed -n 's/.*generated=\([0-9]*\).*/\1/p' | tail -1)
+          REMAINING=${REMAINING:-0}
+          echo "remaining=$REMAINING" >> "$GITHUB_OUTPUT"
+          echo "Remaining chapters needing audio: $REMAINING"
+
+      - name: Generate audio (idempotent slice, skips existing)
+        id: gen
+        if: steps.plan.outputs.remaining != '0'
         run: |
           set -e
           ARGS=()
@@ -70,7 +117,9 @@ jobs:
           if [ -n "${{ inputs.max_chapters }}" ]; then
             ARGS+=(--max-chapters "${{ inputs.max_chapters }}")
           fi
-          python3 scripts/generate_audio.py "${ARGS[@]}"
+          OUT=$(python3 scripts/generate_audio.py "${ARGS[@]}" 2>&1 | tee /tmp/gen.log)
+          GEN=$(echo "$OUT" | sed -n 's/.*generated=\([0-9]*\).*/\1/p' | tail -1)
+          echo "generated=${GEN:-0}" >> "$GITHUB_OUTPUT"
 
       # Re-run generate_static.py so audio_url fields point at the just-created
       # MP3s (the generator scans the sibling .mp3 to decide audio_url).
@@ -89,3 +138,50 @@ jobs:
           NEW_MP3=$(git diff --cached --name-only | grep -c '\.mp3$' || true)
           git commit -m "audio: generate ${NEW_MP3} chapter mp3(s) [skip ci]"
           git push origin HEAD:main
+
+      - name: Re-count remaining after this slice
+        id: plan2
+        run: |
+          set -e
+          git pull --ff-only origin main || true
+          ARGS=(--dry-run)
+          if [ -n "${{ inputs.versions }}" ]; then
+            ARGS+=(--versions ${{ inputs.versions }})
+          fi
+          OUT=$(python3 scripts/generate_audio.py "${ARGS[@]}")
+          REMAINING=$(echo "$OUT" | sed -n 's/.*generated=\([0-9]*\).*/\1/p' | tail -1)
+          REMAINING=${REMAINING:-0}
+          echo "remaining=$REMAINING" >> "$GITHUB_OUTPUT"
+          echo "Remaining after slice: $REMAINING"
+
+      - name: AUTO-RESUME — re-dispatch next slice
+        if: steps.plan2.outputs.remaining != '0' && env.GH_TOKEN != ''
+        run: |
+          echo "Chapters remain (${{ steps.plan2.outputs.remaining }}); re-dispatching next slice."
+          gh workflow run generate-audio.yml --ref main \
+            -f versions="${{ inputs.versions }}" \
+            -f max_chapters="${{ inputs.max_chapters }}" \
+            -f resume="cleanup=on" -f auto="1"
+
+      - name: AUTO-RESUME unavailable — no AUDIO_RESUME_TOKEN secret
+        if: steps.plan2.outputs.remaining != '0' && env.GH_TOKEN == ''
+        run: |
+          echo "::warning::Chapters remain but AUDIO_RESUME_TOKEN secret is not set, so the run cannot auto-resume. Add that secret (actions:write) or re-trigger 'generate-audio' manually to continue."
+
+      - name: SELF-CLEANUP — render complete, remove generation artifacts
+        if: steps.plan2.outputs.remaining == '0' && env.CLEANUP_ENABLED == 'true'
+        run: |
+          set -e
+          echo "All allowlisted chapters have audio. Cleaning up generation artifacts."
+          python3 scripts/generate_static.py   # final audio_url refresh
+          git rm -q .github/workflows/generate-audio.yml scripts/generate_audio.py
+          git add site/static-data
+          git config user.name  "versewell-audio-bot"
+          git config user.email "versewell-audio-bot@users.noreply.github.com"
+          if git diff --cached --quiet; then
+            echo "Nothing to clean."
+            exit 0
+          fi
+          git commit -m "audio: render complete — remove generation workflow + script [skip ci]"
+          git push origin HEAD:main
+          echo "Self-cleanup pushed. generate-audio.yml + generate_audio.py removed from main."

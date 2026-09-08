@@ -12,7 +12,7 @@ per-version voice assignment table):
     Microsoft Edge TTS (edge-tts, no API key), then normalize + master with
     ClipForge's calibrated speech_clarity_v1 chain (highpass 70 Hz, EQ +1.5 dB
     @ 3 kHz, acompressor 1.5:1, two-pass EBU R128 loudnorm targeting
-    -16 LUFS / 7 LU / -1.5 dBTP, alimiter 0.84). Final format MP3 96 kbps
+    -16 LUFS / 7 LU / -1.5 dBTP, alimiter 0.84). Final format MP3 24 kbps
     mono 24 kHz.
   * Output: site/static-data/{version_lower}/{book_slug}/{chapter}.mp3
     (colocated with the existing per-chapter JSON files). The static mirror
@@ -27,7 +27,7 @@ implementation. Overrides for VerseWell:
 
   * rate = +0% (calm long-form Scripture reading pace; ClipForge's +20% is
     tuned for brisk short-video narration and is NOT appropriate here).
-  * Final container = MP3 96 kbps (repo storage; ClipForge emits WAV).
+  * Final container = MP3 24 kbps (repo storage; ClipForge emits WAV).
   * Voice per version comes from AUDIO_STATE.json (not from a global
     Settings file), so each version gets a distinct, alternating-gender
     narrator.
@@ -89,8 +89,13 @@ TTS_RATE = "+0%"
 TTS_VOLUME = "+0%"
 TTS_PITCH = "+0Hz"
 
-# Final storage format.
-MP3_BITRATE = "96k"
+# Final storage format. 24 kbps mono 24 kHz MP3 is a speech-only encode:
+# spoken voice sits well under the ~10 kHz bandwidth 24 kHz preserves, and the
+# speech_clarity_v1 master (highpass 70 Hz + presence EQ + comp + loudnorm +
+# limiter) keeps the signal dense, so 24 kbps stays intelligible while cutting
+# repo/Pages storage ~4x vs 96 kbps. Full-allowlist estimate drops from
+# ~40 GB to ~10 GB; see AUDIO_STATE.json.
+MP3_BITRATE = "24k"
 
 
 # ---------------------------------------------------------------------------
