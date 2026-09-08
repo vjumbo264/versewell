@@ -174,7 +174,7 @@ def publish_batch(new_rels, reason):
         print(">> nothing staged (already committed)", flush=True)
         return
     _git("commit", "-m",
-         f"audio: +{len(new_rels)} chapter m4a(s) rendered ({reason}) [skip ci]")
+         f"audio: +{len(new_rels)} chapter m4a(s) rendered ({reason})")
     # Rebase-tolerant push: a concurrent deploy/other commit may have landed.
     _git("pull", "--rebase", "origin", "main", check=False)
     push = _git("push", "origin", "HEAD:main", check=False)

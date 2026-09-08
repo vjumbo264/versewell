@@ -96,6 +96,16 @@ jobs:
           git config user.name  "versewell-audio-bot"
           git config user.email "versewell-audio-bot@users.noreply.github.com"
 
+      # CRITICAL: pushes made with the default GITHUB_TOKEN do NOT trigger
+      # other workflows, so batch commits would never fire deploy.yml and the
+      # audio would sit in git without going live. Push with the PAT instead
+      # (AUDIO_RESUME_TOKEN) so every incremental batch auto-deploys.
+      - name: Use PAT for pushes so batch commits trigger deploy.yml
+        if: env.GH_TOKEN != ''
+        run: |
+          echo "::add-mask::${{ secrets.AUDIO_RESUME_TOKEN }}"
+          git remote set-url origin "https://x-access-token:${{ secrets.AUDIO_RESUME_TOKEN }}@github.com/${{ github.repository }}.git"
+
       # generate_static.py must run first so per-chapter JSON exists — the
       # audio script reads its verse text as the narration source.
       - name: Ensure static JSON mirror is fresh
@@ -186,6 +196,6 @@ jobs:
             echo "Nothing to clean."
             exit 0
           fi
-          git commit -m "audio: render complete — remove generation workflow + script [skip ci]"
+          git commit -m "audio: render complete — remove generation workflow + script"
           git push origin HEAD:main
           echo "Self-cleanup pushed. Generation artifacts removed from main; rendered .m4a files and audio_url JSON stay."
