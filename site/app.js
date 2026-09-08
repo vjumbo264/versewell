@@ -379,7 +379,7 @@ function renderDocs() {
     <tr><td><code>GET /api/v1/versions</code></td><td>List all available Bible versions.</td></tr>
     <tr><td><code>GET /api/v1/versions/{version}/books</code></td><td>List books of a version (with chapter counts).</td></tr>
     <tr><td><code>GET /api/v1/versions/{version}/{book}</code></td><td>Book metadata (chapter count, verse count).</td></tr>
-    <tr><td><code>GET /api/v1/versions/{version}/{book}/{chapter}</code></td><td>Full chapter: verses plus any section intro and footnotes, and <code>audio_url</code> (narrated MP3 path, or <code>null</code>).</td></tr>
+    <tr><td><code>GET /api/v1/versions/{version}/{book}/{chapter}</code></td><td>Full chapter: verses plus any section intro and footnotes, and <code>audio_url</code> (narrated M4A path, or <code>null</code>).</td></tr>
     <tr><td><code>GET /api/v1/versions/{version}/{book}/{chapter}/{verse}</code></td><td>A single verse, with its footnotes.</td></tr>
     <tr><td><code>GET /api/v1/versions/{version}/search?q=…</code></td><td>Search verse text (first ${50} matches).</td></tr>
     <tr><td><code>GET /api/v1/versions/{version}/random</code></td><td>A random verse.</td></tr>
@@ -461,7 +461,7 @@ curl ${origin}/static-data/kjv/john/3.json</pre>
   </div>
 
   <h2>Chapter audio</h2>
-  <p>Chapter responses include <code>audio_url</code> — a path to an AI-narrated MP3 of the chapter, or <code>null</code> when unavailable. Audio currently exists ONLY for this fixed set of versions: <code>AMP, CEV, GW, KJV, MSG, NIV, NKJV, NLT, NLV, TLB, TPT, VOICE</code>. Every chapter of any other version returns <code>null</code>. Narration is generated offline (Microsoft Edge neural TTS, loudness-normalized to -16 LUFS) and committed as static files under <code>/static-data/{version}/{book}/{chapter}.mp3</code> — it is never generated on demand, and each version has its own distinct narrator voice.</p>
+  <p>Chapter responses include <code>audio_url</code> — a path to an AI-narrated M4A (AAC 48 kbps) of the chapter, or <code>null</code> when unavailable. Audio currently exists ONLY for this fixed set of versions: <code>AMP, CEV, GW, KJV, MSG, NIV, NKJV, NLT, NLV, TLB, TPT, VOICE</code>. Every chapter of any other version returns <code>null</code>. Narration is generated offline (Microsoft Edge neural TTS, loudness-normalized to -16 LUFS) and committed as static files under <code>/static-data/{version}/{book}/{chapter}.m4a</code> — it is never generated on demand, and each version has its own distinct narrator voice.</p>
 
   <h2>Errors</h2>
   <p>Errors use a consistent JSON shape with a conventional HTTP status code:</p>

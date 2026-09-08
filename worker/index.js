@@ -143,8 +143,8 @@ async function handleChapter(versionRow, versionIndex, bookRow, chapter, wantNot
     book: data.book,
     book_name: data.book_name,
     chapter: data.chapter,
-    // audio_url: committed narration MP3 path, or null when the version is
-    // outside the fixed audio allowlist / the chapter is not yet generated.
+    // audio_url: committed narration M4A (AAC 48k) path, or null when the
+    // version is outside the fixed audio allowlist / not yet generated.
     audio_url: data.audio_url ?? null,
     ...(wantNotes
       ? {

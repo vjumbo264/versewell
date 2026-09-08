@@ -4,25 +4,33 @@ name: generate-audio
 #
 # Fully hands-free render-to-completion pipeline:
 #   1. workflow_dispatch ONLY (audio synthesis is expensive/slow — never on push).
-#   2. Each run is a single 6h-budget "slice": it generates only chapters that
-#      have no committed .mp3 yet (idempotent), commits them back to main, and
-#      pushes.
-#   3. AUTO-RESUME: if chapters remain unfinished when the slice ends, the
-#      workflow re-dispatches ITSELF (workflow_dispatch with inputs
-#      resume=cleanup:off, auto=1) via gh so the next run picks up exactly
-#      where this one stopped. This repeats until every allowlisted chapter
-#      has audio. Requires the AUDIO_RESUME_TOKEN secret (a fine-grained PAT
-#      with actions:write); if it is absent the chain simply stops and the
-#      operator can re-trigger manually.
-#   4. SELF-CLEANUP: when a run finds NOTHING left to generate (a resume run
-#      with auto=1 — i.e. the chain has reached the end), it refreshes every
-#      audio_url field, deletes this workflow file and the generate_audio.py
-#      script, commits + pushes, and does NOT re-dispatch. All audio
-#      GENERATION artifacts are gone from main; the rendered .mp3 files and
-#      the audio_url JSON fields (which the live site needs) are kept.
+#   2. Each run is one ~5h slice. A watchdog creates a soft-stop file at the
+#      5h00m mark so generation winds down, commits its last partial batch and
+#      exits cleanly LONG BEFORE the 6h Actions hard kill — the previous
+#      revision died at ~5h50m mid-job with NOTHING committed, losing the
+#      entire run's work and leaving no next run dispatched.
+#   3. INCREMENTAL PUBLISH: every N chapters (default 100) the generator
+#      refreshes audio_url JSON, commits the new .m4a files and pushes. Every
+#      push auto-triggers deploy.yml, so audio goes live AS IT RENDERS. A
+#      crash loses at most one small batch, and re-runs skip committed files
+#      (idempotent resume off the git tree itself — no separate state file).
+#   4. PARALLEL: --jobs N concurrent Edge TTS workers (default 4).
+#   5. AUTO-RESUME: if chapters remain unfinished when the slice ends, the
+#      workflow re-dispatches ITSELF (workflow_dispatch with auto=1) via gh so
+#      the next slice picks up exactly where this one stopped. Repeats until
+#      every allowlisted chapter has audio. Requires the AUDIO_RESUME_TOKEN
+#      secret (fine-grained PAT, actions:write); if absent the chain stops
+#      with a warning and the operator re-triggers manually.
+#   6. SELF-CLEANUP: when a resume-chain run (auto=1) finds 0 chapters
+#      remaining, it finalizes (audio_url refresh), then git-rms this workflow
+#      file and scripts/generate_audio.py, commits and pushes — all audio
+#      GENERATION artifacts leave main. The rendered .m4a files and the
+#      audio_url JSON fields the live site needs are kept. A manual dispatch
+#      (auto != 1) NEVER self-deletes.
 #
-# Safety: a manual re-dispatch (auto != 1) NEVER self-deletes, so an operator
-# spot-run can never remove the workflow.
+# Format: M4A (AAC) 48 kbps mono 24 kHz — ~1.9 MB per average chapter,
+# ~4.5 GB total for the full 13.5k-chapter allowlist (inside GitHub's 5 GB
+# repo soft cap and Cloudflare Pages' 25 MiB/file limit).
 
 on:
   workflow_dispatch:
@@ -32,15 +40,15 @@ on:
         required: false
         default: ""
       max_chapters:
-        description: "Stop after N newly-generated chapters this run (blank = as many as fit in the 6h budget)."
+        description: "Stop after N newly-generated chapters this run (blank = soft-stop at 5h00m)."
         required: false
         default: ""
-      resume:
-        description: "cleanup=on -> self-delete when 0 chapters remain (internal, used by auto-resume chain)."
+      jobs:
+        description: "Parallel synthesis workers (default 4)."
         required: false
-        default: "cleanup=off"
+        default: "4"
       auto:
-        description: "1 = fired by the auto-resume chain (allows self-cleanup); manual runs leave this blank."
+        description: "1 = fired by the auto-resume chain (allows self-cleanup); manual runs leave this 0."
         required: false
         default: "0"
 
@@ -53,15 +61,14 @@ concurrency:
 
 env:
   GH_TOKEN: ${{ secrets.AUDIO_RESUME_TOKEN }}
-  CLEANUP_ENABLED: ${{ inputs.resume == 'cleanup=on' && inputs.auto == '1' }}
+  CLEANUP_ENABLED: ${{ inputs.auto == '1' }}
+  # Soft-stop at 5h00m — far inside the 6h (360 min) job limit.
+  SOFT_STOP_MINUTES: "300"
 
 jobs:
   generate:
     runs-on: ubuntu-latest
     timeout-minutes: 350
-    outputs:
-      remaining: ${{ steps.plan.outputs.remaining }}
-      generated: ${{ steps.gen.outputs.generated }}
     steps:
       - name: Check out main
         uses: actions/checkout@v4
@@ -84,6 +91,11 @@ jobs:
       - name: Install edge-tts
         run: pip install edge-tts
 
+      - name: Configure git identity
+        run: |
+          git config user.name  "versewell-audio-bot"
+          git config user.email "versewell-audio-bot@users.noreply.github.com"
+
       # generate_static.py must run first so per-chapter JSON exists — the
       # audio script reads its verse text as the narration source.
       - name: Ensure static JSON mirror is fresh
@@ -99,57 +111,50 @@ jobs:
           fi
           OUT=$(python3 scripts/generate_audio.py "${ARGS[@]}")
           echo "$OUT"
-          # Dry-run reports 'generated=N' where N = chapters WITHOUT audio.
-          REMAINING=$(echo "$OUT" | sed -n 's/.*generated=\([0-9]*\).*/\1/p' | tail -1)
+          REMAINING=$(echo "$OUT" | sed -n 's/^remaining=\([0-9]*\).*/\1/p' | tail -1)
           REMAINING=${REMAINING:-0}
           echo "remaining=$REMAINING" >> "$GITHUB_OUTPUT"
           echo "Remaining chapters needing audio: $REMAINING"
 
-      - name: Generate audio (idempotent slice, skips existing)
+      - name: Generate audio slice (parallel, incremental commit+push, soft-stop)
         id: gen
         if: steps.plan.outputs.remaining != '0'
         run: |
           set -e
-          ARGS=()
+          STOP_FILE=/tmp/audio_soft_stop
+          rm -f "$STOP_FILE"
+          # Watchdog: touch the soft-stop file at the 5h00m mark so the
+          # generator stops starting new chapters, drains in-flight work,
+          # commits its final partial batch and exits 0 — well before the
+          # 6h hard kill that used to wipe out entire runs.
+          ( sleep $(( SOFT_STOP_MINUTES * 60 )); touch "$STOP_FILE" ) &
+          WATCHDOG=$!
+          ARGS=(--stop-file "$STOP_FILE" --jobs "${{ inputs.jobs }}")
           if [ -n "${{ inputs.versions }}" ]; then
             ARGS+=(--versions ${{ inputs.versions }})
           fi
           if [ -n "${{ inputs.max_chapters }}" ]; then
             ARGS+=(--max-chapters "${{ inputs.max_chapters }}")
           fi
-          OUT=$(python3 scripts/generate_audio.py "${ARGS[@]}" 2>&1 | tee /tmp/gen.log)
-          GEN=$(echo "$OUT" | sed -n 's/.*generated=\([0-9]*\).*/\1/p' | tail -1)
+          # The script itself refreshes audio_url JSON and commits + pushes
+          # every --commit-interval successes (incremental publish).
+          python3 scripts/generate_audio.py "${ARGS[@]}" 2>&1 | tee /tmp/gen.log
+          kill $WATCHDOG 2>/dev/null || true
+          GEN=$(sed -n 's/^Done\. generated=\([0-9]*\).*/\1/p' /tmp/gen.log | tail -1)
           echo "generated=${GEN:-0}" >> "$GITHUB_OUTPUT"
-
-      # Re-run generate_static.py so audio_url fields point at the just-created
-      # MP3s (the generator scans the sibling .mp3 to decide audio_url).
-      - name: Refresh chapter JSON audio_url fields
-        run: python3 scripts/generate_static.py
-
-      - name: Commit generated audio + refreshed JSON
-        run: |
-          git config user.name  "versewell-audio-bot"
-          git config user.email "versewell-audio-bot@users.noreply.github.com"
-          git add site/static-data
-          if git diff --cached --quiet; then
-            echo "No new audio produced this run."
-            exit 0
-          fi
-          NEW_MP3=$(git diff --cached --name-only | grep -c '\.mp3$' || true)
-          git commit -m "audio: generate ${NEW_MP3} chapter mp3(s) [skip ci]"
-          git push origin HEAD:main
 
       - name: Re-count remaining after this slice
         id: plan2
         run: |
           set -e
-          git pull --ff-only origin main || true
+          git pull --rebase origin main || true
           ARGS=(--dry-run)
           if [ -n "${{ inputs.versions }}" ]; then
             ARGS+=(--versions ${{ inputs.versions }})
           fi
           OUT=$(python3 scripts/generate_audio.py "${ARGS[@]}")
-          REMAINING=$(echo "$OUT" | sed -n 's/.*generated=\([0-9]*\).*/\1/p' | tail -1)
+          echo "$OUT"
+          REMAINING=$(echo "$OUT" | sed -n 's/^remaining=\([0-9]*\).*/\1/p' | tail -1)
           REMAINING=${REMAINING:-0}
           echo "remaining=$REMAINING" >> "$GITHUB_OUTPUT"
           echo "Remaining after slice: $REMAINING"
@@ -161,7 +166,8 @@ jobs:
           gh workflow run generate-audio.yml --ref main \
             -f versions="${{ inputs.versions }}" \
             -f max_chapters="${{ inputs.max_chapters }}" \
-            -f resume="cleanup=on" -f auto="1"
+            -f jobs="${{ inputs.jobs }}" \
+            -f auto="1"
 
       - name: AUTO-RESUME unavailable — no AUDIO_RESUME_TOKEN secret
         if: steps.plan2.outputs.remaining != '0' && env.GH_TOKEN == ''
@@ -172,16 +178,14 @@ jobs:
         if: steps.plan2.outputs.remaining == '0' && env.CLEANUP_ENABLED == 'true'
         run: |
           set -e
-          echo "All allowlisted chapters have audio. Cleaning up generation artifacts."
-          python3 scripts/generate_static.py   # final audio_url refresh
+          echo "All allowlisted chapters have audio. Finalizing + cleaning up generation artifacts."
+          python3 scripts/generate_audio.py --finalize   # final audio_url refresh
           git rm -q .github/workflows/generate-audio.yml scripts/generate_audio.py
-          git add site/static-data
-          git config user.name  "versewell-audio-bot"
-          git config user.email "versewell-audio-bot@users.noreply.github.com"
+          git add -A site/static-data
           if git diff --cached --quiet; then
             echo "Nothing to clean."
             exit 0
           fi
           git commit -m "audio: render complete — remove generation workflow + script [skip ci]"
           git push origin HEAD:main
-          echo "Self-cleanup pushed. generate-audio.yml + generate_audio.py removed from main."
+          echo "Self-cleanup pushed. Generation artifacts removed from main; rendered .m4a files and audio_url JSON stay."

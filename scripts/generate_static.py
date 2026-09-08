@@ -83,7 +83,7 @@ def testament_of(osis_book):
 
 def load_audio_allowlist():
     """Closed audio scope from AUDIO_STATE.json. A version absent from this
-    list NEVER gets an audio_url, even if MP3 files somehow exist for it."""
+    list NEVER gets an audio_url, even if audio files somehow exist for it."""
     try:
         with open(os.path.join(ROOT, "AUDIO_STATE.json"), encoding="utf-8") as fh:
             return set(json.load(fh).get("audio_enabled_versions", []))
@@ -222,12 +222,14 @@ def generate_version(importer, path, out_root):
                 {"start_verse": r["start_verse"], "end_verse": r["end_verse"], "text": r["intro_text"]}
                 for r in intro_rows
             ]
-            # audio_url: committed narration MP3 for allowlisted versions
-            # only, null otherwise (never a dangling link).
-            mp3_path = os.path.join(version_dir, b["slug"], "%d.mp3" % ch)
+            # audio_url: committed narration M4A for allowlisted versions
+            # only, null otherwise (never a dangling link). Files are
+            # committed incrementally by the generate-audio workflow and
+            # served as same-directory siblings of this JSON.
+            m4a_path = os.path.join(version_dir, b["slug"], "%d.m4a" % ch)
             audio_url = (
-                "/static-data/%s/%s/%d.mp3" % (code.lower(), b["slug"], ch)
-                if code in AUDIO_ALLOWLIST and os.path.exists(mp3_path)
+                "/static-data/%s/%s/%d.m4a" % (code.lower(), b["slug"], ch)
+                if code in AUDIO_ALLOWLIST and os.path.exists(m4a_path)
                 else None
             )
             payload = {
