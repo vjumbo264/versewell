@@ -34,9 +34,6 @@ jobs:
         working-directory: worker
         run: npx --yes wrangler@latest deploy
 
-      # Chapter audio narration was removed (Edge TTS reliability issues);
-      # the tree contains no .m4a files and there is no separate audio
-      # Pages project anymore — the site deploys as-is.
       - name: Stage site
         run: |
           mkdir -p deploy-site
