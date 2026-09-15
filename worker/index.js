@@ -143,9 +143,8 @@ async function handleChapter(versionRow, versionIndex, bookRow, chapter, wantNot
     book: data.book,
     book_name: data.book_name,
     chapter: data.chapter,
-    // audio_url: committed narration M4A (AAC 48k) path, or null when the
-    // version is outside the fixed audio allowlist / not yet generated.
-    audio_url: data.audio_url ?? null,
+    // Chapter audio narration was explored and removed (persistent Edge TTS
+    // reliability issues); chapter responses carry no audio_url field.
     ...(wantNotes
       ? {
           intro: (data.intros && data.intros[0]) ?? data.intro ?? null,

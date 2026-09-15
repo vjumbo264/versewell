@@ -1,5 +1,0 @@
-# Audio (.m4a) is hosted on the separate versewell-audio Pages project because
-# the full site tree exceeds Cloudflare Pages' 20,000-file deployment limit.
-# This proxy keeps the canonical /static-data/<ver>/<book>/<ch>.m4a URL stable
-# for all consumers (ForgeHouse 50 versewellProvider, the reading site).
-/static-data/*.m4a https://versewell-audio.pages.dev/static-data/:splat 200
