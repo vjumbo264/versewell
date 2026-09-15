@@ -244,89 +244,28 @@ the Worker and the website — on the very next Pages deploy.
 
 ---
 
-## §8. Chapter audio narration (fixed-scope feature)
+## §8. Chapter audio narration (REMOVED)
 
-Each chapter of a **fixed, closed set of versions** has an AI-narrated audio
-file, generated once offline and committed into the repo alongside the static
-JSON mirror — never generated on demand, never regenerated on deploy.
+Chapter audio narration (AI-narrated chapter audio via Microsoft Edge TTS,
+alternating male/female voices per version, committed M4A files, an
+`audio_url` field in chapter JSON, and an in-Reader audio player) was
+explored and **fully removed** due to persistent, hard-to-diagnose TTS
+reliability issues (notably silent backend voice retirements that failed
+thousands of chapters per run behind green workflow statuses). It may be
+revisited in the future, but is not part of the platform now.
 
-### Scope (closed allowlist)
+Removed in the removal pass (see git history / AUDIO_REMOVAL_STATE.json):
 
-`AUDIO_STATE.json.audio_enabled_versions` is the permanent allowlist, captured
-from the exact contents of `/bible-sources/` when the feature was built:
-`AMP, CEV, GW, KJV, MSG, NIV, NKJV, NLT, NLV, TLB, TPT, VOICE` (12 versions,
-VOICE included after `voice.sqlite3` was moved out of staging).
-**A version added to `/bible-sources/` later NEVER automatically receives
-audio** — `scripts/generate_audio.py` enforces the allowlist at runtime, and
-`generate_static.py` only emits a non-null `audio_url` for allowlisted codes.
-
-### Synthesis (ported verbatim from ClipForge `pipeline/stage_b/voiceover.py`)
-
-- Engine: Microsoft Edge TTS via `edge-tts` (`edge_tts.Communicate`), no API key.
-- Retry: 3 attempts, linear backoff (2 s × attempt).
-- Normalize: ffmpeg → 24 kHz mono `pcm_s16le` WAV.
-- Mastering: ClipForge's `speech_clarity_v1` chain unchanged — highpass 70 Hz
-  (2 poles), +1.5 dB presence EQ at 3 kHz (Q 1.1), acompressor 1.5:1
-  (threshold 0.125, attack 15, release 120), two-pass EBU R128 loudnorm
-  targeting **-16 LUFS / 7 LU / -1.5 dBTP**, final `alimiter` 0.84.
-- VerseWell overrides: **rate `+0%`** (calm long-form Scripture pace — NOT
-  ClipForge's brisk `+20%`), final storage format **M4A (AAC) 48 kbps mono 24 kHz**
-  — a speech-only encode that keeps narration intelligible while cutting
-  full-allowlist repo storage ~4x vs 96 kbps (~40 GB → ~10 GB).
-
-### Voice assignment (distinct voice per version, alternating gender)
-
-Versions sorted alphabetically; voices assigned Male, Female, Male, …
-Calm narrator/conversational styles only (energetic/casual voices excluded):
-
-| version | voice | gender |
-|---|---|---|
-| AMP | en-US-AndrewNeural | M |
-| CEV | en-US-AvaNeural | F |
-| GW | en-US-ChristopherNeural | M |
-| KJV | en-GB-SoniaNeural | F |
-| MSG | en-US-EricNeural | M |
-| NIV | en-US-JennyNeural | F |
-| NKJV | en-GB-RyanNeural | M |
-| NLT | en-US-MichelleNeural | F |
-| NLV | en-US-DavisNeural | M |
-| TLB | en-US-AriaNeural | F |
-| TPT | en-US-RogerNeural | M |
-| VOICE | en-US-NancyNeural | F |
-
-### Storage, trigger, API surface
-
-- Files: `site/static-data/{version_lower}/{book_slug}/{chapter}.m4a`
-  (colocated with the chapter JSON, deployed by Pages with the same tree).
-  M4A/AAC 48 kbps keeps the full 13,528-chapter allowlist near ~4.5 GB —
-  inside GitHub's 5 GB repo soft cap and Pages' 25 MiB/file limit.
-- Trigger: `.github/workflows/generate-audio.yml` — **workflow_dispatch
-  only**, idempotent (any chapter whose committed `.m4a` exists is skipped),
-  **parallel** (`--jobs N` concurrent Edge TTS workers, default 4), supports
-  partial runs via `versions` / `max_chapters` inputs.
-- **Incremental publish (as-it-renders):** every `--commit-interval`
-  successes (default 100) the generator refreshes `audio_url` JSON, commits
-  the new `.m4a` files and pushes; each push auto-triggers `deploy.yml`, so
-  audio appears on the live site continuously and a crash loses at most one
-  small batch — resume state IS the git tree, no separate manifest file.
-- **Soft-stop at 5h00m:** a watchdog touches a stop-file at minute 300 so the
-  run winds down, commits its final partial batch and exits 0 long before
-  the 6 h hard kill (an earlier revision died at ~5h50m with nothing
-  committed, losing the whole run and never dispatching the next slice).
-- **Auto-resume (hands-free to completion):** if chapters remain when the
-  slice ends, the workflow re-dispatches itself via the `AUDIO_RESUME_TOKEN`
-  secret (fine-grained PAT, `actions:write`) with input `auto=1`, chaining
-  slices until the render is complete. Without the secret the chain stops
-  with a warning and an operator re-triggers manually.
-- **Self-cleanup:** when a resume-chain run finds 0 chapters remaining it
-  refreshes `audio_url` fields, then `git rm`s the workflow file and
-  `scripts/generate_audio.py`, commits and pushes — removing all audio
-  GENERATION artifacts from `main` while keeping the rendered `.m4a` files
-  and the `audio_url` JSON the live site needs. A manual dispatch
-  (`auto != 1`) never self-deletes.
-- Chapter JSON (static mirror and Worker) carries `audio_url` — the M4A path,
-  or `null` for non-allowlisted versions / not-yet-generated chapters. The
-  Reader renders an `<audio>` player only when `audio_url` is non-null.
+- `.github/workflows/generate-audio.yml` and `scripts/generate_audio.py`
+  (Edge TTS synthesis, retry, ffmpeg mastering, auto-resume chain).
+- All committed `.m4a` chapter audio files (12,052 files).
+- The `audio_url` field from chapter JSON — both the static mirror
+  generator's output and the Worker API's chapter route.
+- The Reader page's `<audio>` player UI and its styles.
+- The separate `versewell-audio` Pages deployment and the m4a
+  proxy/headers config (`site/_redirects`, `site/_headers.audio`).
+- The audio docs section from the API docs page, and `AUDIO_STATE.json` /
+  `AUDIO_VOICE_FIX_STATE.json`.
 
 ### Canonical OT/NT classification (Part 2)
 

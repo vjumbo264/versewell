@@ -1,6 +1,6 @@
 # VerseWell
 
-**Chapter audio narration** is available for a fixed set of 12 versions (AMP, CEV, GW, KJV, MSG, NIV, NKJV, NLT, NLV, TLB, TPT, VOICE), each with its own distinct Edge-TTS narrator voice. Narration is generated offline by the manually-triggered `generate-audio` GitHub Actions workflow and committed as 48 kbps M4A files under `site/static-data/{version}/{book}/{chapter}.m4a` (incrementally, as the parallel render proceeds — each batch push auto-deploys); chapter JSON exposes it via `audio_url` (`null` when unavailable). The scope is a closed allowlist in `AUDIO_STATE.json` — versions added later never automatically get audio. See `ARCHITECTURE.md` §8 for the full contract.
+**Chapter audio narration was explored and removed** due to persistent Edge TTS reliability issues; it may be revisited in the future. The generation workflow, TTS script, committed audio files, `audio_url` API field, and Reader audio player have all been removed — see `ARCHITECTURE.md` §8.
 
 A free, public Bible platform with two faces over one shared dataset:
 

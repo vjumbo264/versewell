@@ -102,8 +102,8 @@
       "summary": "Removed the audioHtml player block from the Reader render in site/app.js (genuinely absent, not hidden) and the .audio-player styles from site/style.css. node --check passes. Site redeploy happens after task-07 docs edits (same Pages artifact, one deploy)."
     },
     "task-07": {
-      "status": "pending",
-      "summary": "Remove 'Chapter audio' docs section + audio_url row from the app.js docs view; rewrite README.md line 3 and ARCHITECTURE.md §8 to a brief removed-feature note."
+      "status": "done",
+      "summary": "Removed the audio_url row and the \"Chapter audio\" section from the app.js API docs view; README.md audio paragraph replaced with a brief removed-feature note; ARCHITECTURE.md §8 replaced with a REMOVED note (unrelated \"Canonical OT/NT classification\" subsection preserved). node --check passes."
     },
     "task-08": {
       "status": "pending",
