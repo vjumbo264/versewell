@@ -106,8 +106,8 @@
       "summary": "Removed the audio_url row and the \"Chapter audio\" section from the app.js API docs view; README.md audio paragraph replaced with a brief removed-feature note; ARCHITECTURE.md §8 replaced with a REMOVED note (unrelated \"Canonical OT/NT classification\" subsection preserved). node --check passes."
     },
     "task-08": {
-      "status": "pending",
-      "summary": "Delete AUDIO_STATE.json and AUDIO_VOICE_FIX_STATE.json."
+      "status": "done",
+      "summary": "Deleted AUDIO_STATE.json (voice allowlist + generation state) and AUDIO_VOICE_FIX_STATE.json (prior voice-fix checkpoint) from the repo per the removal contract preference (delete over mark-obsolete)."
     },
     "task-09": {
       "status": "pending",
