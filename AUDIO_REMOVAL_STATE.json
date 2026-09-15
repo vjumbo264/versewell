@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "removal_complete": false,
+  "purpose": "Persistent state for the scoped removal of the chapter-audio narration feature (Edge TTS generation, voice assignments, generate-audio workflow, committed audio files, audio_url fields, audio player UI, audio docs). Surgical removal only; verse text, footnotes, intros, search, static JSON mirror for content, and non-audio Worker routes must not be disturbed.",
+  "rules": {
+    "repo_is_source_of_truth": "Every session resumes from the live repo + this file, not from prior self-reported done claims.",
+    "per_step_commit_push": "implement -> validate -> update this file -> commit -> push -> verify origin/main -> next task.",
+    "no_credentials_in_repo": "Never write tokens/PATs into any file, commit, log, or output."
+  },
+  "inventory_found": {
+    "inspected_commit": "e09c688daf5070fa4b17692e44b706e9eb1f4e30 (tip of origin/main at inventory time)",
+    "workflow": [".github/workflows/generate-audio.yml"],
+    "generation_script": ["scripts/generate_audio.py"],
+    "committed_audio_files": {
+      "pattern": "site/static-data/{version}/{book}/{chapter}.m4a",
+      "count_tracked": 12052,
+      "note": "900 chapters rendered per AUDIO pipeline progress; versions amp/cev/gw/kjv/msg/niv/nkjv/nlt/nlv/tlb/tpt/voice"
+    },
+    "state_files": ["AUDIO_STATE.json", "AUDIO_VOICE_FIX_STATE.json"],
+    "site_code_refs": {
+      "site/app.js": [
+        "lines ~285-298: audio player HTML injected when data.audio_url non-null",
+        "line ~382: API docs table row mentioning audio_url",
+        "lines ~463-464: 'Chapter audio' docs section"
+      ],
+      "site/style.css": ["lines ~212-215: .audio-player styles"],
+      "site/_headers": ["/static-data/*.m4a Content-Type audio/mp4 block"],
+      "site/_headers.audio": ["whole file (audio Pages project headers)"],
+      "site/_redirects": ["/static-data/*.m4a proxy to versewell-audio.pages.dev"]
+    },
+    "static_generator_refs": {
+      "scripts/generate_static.py": [
+        "load_audio_allowlist() (~line 84)",
+        "AUDIO_ALLOWLIST (~line 94)",
+        "audio_url emission into chapter JSON (~lines 225-240)"
+      ],
+      "json_files_with_audio_url_field": 13528
+    },
+    "worker_refs": {
+      "worker/index.js": ["lines ~146-148: audio_url field copied into chapter response"]
+    },
+    "deploy_workflow_refs": {
+      ".github/workflows/deploy.yml": [
+        "audio-aware staging (rsync exclude *.m4a, exclude _headers.audio)",
+        "audio-only Pages project (versewell-audio) staging + create + deploy steps"
+      ]
+    },
+    "docs_refs": {
+      "README.md": ["line 3: chapter audio narration paragraph"],
+      "ARCHITECTURE.md": ["lines ~247-329: §8 chapter audio narration section"]
+    },
+    "live_endpoints": {
+      "site": "https://versewell.pages.dev",
+      "worker": "https://versewell-api.vjumbo264.workers.dev",
+      "audio_pages_project": "versewell-audio.pages.dev (to be retired from deploys)"
+    }
+  },
+  "tasks": {
+    "task-01": {"status": "done", "summary": "Repo inspected live; inventory above recorded; sparse/blobless clone used to avoid downloading 15GB of audio blobs."},
+    "task-02": {"status": "pending", "summary": "Remove .github/workflows/generate-audio.yml and scripts/generate_audio.py."},
+    "task-03": {"status": "pending", "summary": "git rm every committed .m4a (12,052 files) from the repository."},
+    "task-04": {"status": "pending", "summary": "Remove audio_url from scripts/generate_static.py; regenerate all static JSON without the field (13,528 files affected)."},
+    "task-05": {"status": "pending", "summary": "Remove audio_url from worker/index.js; remove audio staging/deploy from deploy.yml; delete site/_headers.audio and the m4a entries in site/_headers and site/_redirects. Redeploy worker."},
+    "task-06": {"status": "pending", "summary": "Remove audio player UI from site/app.js and .audio-player styles from site/style.css. Redeploy site."},
+    "task-07": {"status": "pending", "summary": "Remove 'Chapter audio' docs section + audio_url row from the app.js docs view; rewrite README.md line 3 and ARCHITECTURE.md §8 to a brief removed-feature note."},
+    "task-08": {"status": "pending", "summary": "Delete AUDIO_STATE.json and AUDIO_VOICE_FIX_STATE.json."},
+    "task-09": {"status": "pending", "summary": "Run the 8-point First-Priority Verification against live site, Worker API, and static mirror; only then set removal_complete=true."}
+  }
+}
