@@ -31,6 +31,13 @@ per-version voice assignment table):
     finishes, the last partial batch is committed + pushed, and the script
     exits 0 so the workflow can refresh JSON and re-dispatch itself BEFORE
     the 6h Actions hard kill.
+  * Loud failure (2026-09-15): if any chapter exhausts its retries, the
+    script STILL commits every success first, then prints an aggregated
+    AUDIO FAILURE SUMMARY (and writes --summary-file JSON for the
+    workflow's GitHub step summary) and exits NON-ZERO so the Actions run
+    is marked FAILED. For days the DavisNeural/NancyNeural retirements
+    failed 2,378 chapters per run while every run reported 'success' —
+    that can never happen silently again.
   * --finalize: refresh every audio_url field (via generate_static.py).
     The workflow then git-rms this script + the workflow file so no audio
     GENERATION artifacts remain on main.
@@ -457,6 +464,7 @@ def cmd_generate(args, state):
 
     generated = 0
     failed = 0
+    failures = []  # [{"label", "reason"}] — aggregated for the run summary
     batch = []
     pending = {}
     t_start = time.time()
@@ -483,6 +491,8 @@ def cmd_generate(args, state):
                         )
                 except Exception as e:
                     failed += 1
+                    reason = " ".join(str(e).split())[:400]
+                    failures.append({"label": item["label"], "reason": reason})
                     print(f"  FAILED {item['label']}: {e}", flush=True)
             # Publish as we go — outside the per-future loop so the JSON
             # refresh + git ops happen once per batch, on the main thread.
@@ -511,7 +521,37 @@ def cmd_generate(args, state):
         f"(stop={'yes' if stop_requested() else 'no'})",
         flush=True,
     )
-    return 0
+    _write_summary(args, generated, failed, stop_requested(), failures)
+    if failures:
+        print("\n=== AUDIO FAILURE SUMMARY ===", flush=True)
+        print(f"failed={failed} generated={generated}", flush=True)
+        for f in failures:
+            print(f"  FAILED {f['label']}: {f['reason']}", flush=True)
+        print("=== END AUDIO FAILURE SUMMARY ===", flush=True)
+    else:
+        print("AUDIO FAILURE SUMMARY: none — every attempted chapter succeeded.",
+              flush=True)
+    # Honest run status: any chapter that exhausted its retries fails the
+    # workflow run (non-zero exit) so the problem surfaces instead of
+    # hiding behind a green 'success'. Every success was already committed
+    # + pushed above, so partial progress is never lost by failing here.
+    return 1 if failed else 0
+
+
+def _write_summary(args, generated, failed, soft_stop, failures):
+    """Machine-readable run summary for the workflow's aggregated failure
+    report + honest-status enforcement step."""
+    if not getattr(args, "summary_file", None):
+        return
+    payload = {
+        "generated": generated,
+        "failed": failed,
+        "soft_stop": bool(soft_stop),
+        "failures": failures,
+    }
+    Path(args.summary_file).write_text(
+        json.dumps(payload, indent=2) + "\n", encoding="utf-8"
+    )
 
 
 def cmd_finalize(args, state):
@@ -538,6 +578,10 @@ def main():
                          "publish, and exit 0 (workflow soft-stop).")
     ap.add_argument("--force", action="store_true",
                     help="Regenerate even chapters whose .m4a already exists.")
+    ap.add_argument("--summary-file", default=None,
+                    help="Write a JSON run summary (generated/failed/per-chapter "
+                         "failure details) to this path for the workflow's "
+                         "aggregated failure report.")
     ap.add_argument("--dry-run", action="store_true",
                     help="Only report what would be generated (prints remaining=N).")
     ap.add_argument("--finalize", action="store_true",

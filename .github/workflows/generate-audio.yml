@@ -27,6 +27,15 @@ name: generate-audio
 #      GENERATION artifacts leave main. The rendered .m4a files and the
 #      audio_url JSON fields the live site needs are kept. A manual dispatch
 #      (auto != 1) NEVER self-deletes.
+#   7. LOUD FAILURE (2026-09-15): if any chapter exhausts all retries, the
+#      generator still commits + pushes every success (partial progress is
+#      never lost) but then exits non-zero. A dedicated step appends an
+#      aggregated per-chapter failure summary to the GitHub job summary, and
+#      a final enforcement step marks the whole run FAILED. For days the
+#      DavisNeural/NancyNeural backend retirement failed 2,378 chapters per
+#      run behind a green 'success' — that can never happen silently again.
+#      The auto-resume chain still re-dispatches, and because resume state
+#      is the git tree, the next run retries exactly the failed chapters.
 #
 # Format: M4A (AAC) 48 kbps mono 24 kHz — ~1.9 MB per average chapter,
 # ~4.5 GB total for the full 13.5k-chapter allowlist (inside GitHub's 5 GB
@@ -130,16 +139,16 @@ jobs:
         id: gen
         if: steps.plan.outputs.remaining != '0'
         run: |
-          set -e
           STOP_FILE=/tmp/audio_soft_stop
-          rm -f "$STOP_FILE"
+          SUMMARY=/tmp/audio_summary.json
+          rm -f "$STOP_FILE" "$SUMMARY"
           # Watchdog: touch the soft-stop file at the 5h00m mark so the
           # generator stops starting new chapters, drains in-flight work,
           # commits its final partial batch and exits 0 — well before the
           # 6h hard kill that used to wipe out entire runs.
           ( sleep $(( SOFT_STOP_MINUTES * 60 )); touch "$STOP_FILE" ) &
           WATCHDOG=$!
-          ARGS=(--stop-file "$STOP_FILE" --jobs "${{ inputs.jobs }}")
+          ARGS=(--stop-file "$STOP_FILE" --jobs "${{ inputs.jobs }}" --summary-file "$SUMMARY")
           if [ -n "${{ inputs.versions }}" ]; then
             ARGS+=(--versions ${{ inputs.versions }})
           fi
@@ -147,11 +156,20 @@ jobs:
             ARGS+=(--max-chapters "${{ inputs.max_chapters }}")
           fi
           # The script itself refreshes audio_url JSON and commits + pushes
-          # every --commit-interval successes (incremental publish).
+          # every --commit-interval successes (incremental publish). It now
+          # exits NON-ZERO when any chapter exhausted its retries — do NOT
+          # let that kill this step: the re-count, the aggregated failure
+          # summary and the auto-resume dispatch below must still run. The
+          # final 'Honest run status' step is what marks the run failed.
           python3 scripts/generate_audio.py "${ARGS[@]}" 2>&1 | tee /tmp/gen.log
+          GEN_RC=${PIPESTATUS[0]}
           kill $WATCHDOG 2>/dev/null || true
           GEN=$(sed -n 's/^Done\. generated=\([0-9]*\).*/\1/p' /tmp/gen.log | tail -1)
+          FAILED=$(sed -n 's/^Done\. generated=[0-9]* failed=\([0-9]*\).*/\1/p' /tmp/gen.log | tail -1)
           echo "generated=${GEN:-0}" >> "$GITHUB_OUTPUT"
+          echo "failed=${FAILED:-0}" >> "$GITHUB_OUTPUT"
+          echo "rc=${GEN_RC:-0}" >> "$GITHUB_OUTPUT"
+          exit 0
 
       - name: Re-count remaining after this slice
         id: plan2
@@ -168,6 +186,45 @@ jobs:
           REMAINING=${REMAINING:-0}
           echo "remaining=$REMAINING" >> "$GITHUB_OUTPUT"
           echo "Remaining after slice: $REMAINING"
+
+      - name: Aggregated failure summary (job summary + log)
+        if: always()
+        run: |
+          GENERATED="${{ steps.gen.outputs.generated }}"
+          FAILED="${{ steps.gen.outputs.failed }}"
+          REMAINING="${{ steps.plan2.outputs.remaining }}"
+          GENERATED=${GENERATED:-0}; FAILED=${FAILED:-0}; REMAINING=${REMAINING:-0}
+          {
+            echo "## Audio generation — run summary"
+            echo ""
+            echo "| Metric | Value |"
+            echo "| --- | --- |"
+            echo "| Chapters generated this run | $GENERATED |"
+            echo "| Chapters failed after all retries | $FAILED |"
+            echo "| Chapters still remaining | $REMAINING |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$FAILED" != "0" ] && [ -f /tmp/audio_summary.json ]; then
+            python3 - /tmp/audio_summary.json > /tmp/failures.md <<'PYEOF'
+          import json, sys
+          with open(sys.argv[1], encoding="utf-8") as fh:
+              data = json.load(fh)
+          for f in data.get("failures", []):
+              print("- **{}** — {}".format(f["label"], f["reason"]))
+          PYEOF
+            {
+              echo ""
+              echo "### Failed chapters (each exhausted all retries)"
+              echo ""
+              echo "A re-run of this workflow retries exactly these chapters (git-tree resume); chapters already generated are skipped."
+              echo ""
+              cat /tmp/failures.md
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::$FAILED chapter(s) failed all retries — aggregated list is in the job summary; a re-run retries exactly these chapters."
+          elif [ "$FAILED" != "0" ]; then
+            echo "::error::$FAILED chapter(s) failed all retries (summary file missing — see the FAILED lines in the generation log)."
+          else
+            echo "No chapter failures this run."
+          fi
 
       - name: AUTO-RESUME — re-dispatch next slice
         if: steps.plan2.outputs.remaining != '0' && env.GH_TOKEN != ''
@@ -199,3 +256,24 @@ jobs:
           git commit -m "audio: render complete — remove generation workflow + script"
           git push origin HEAD:main
           echo "Self-cleanup pushed. Generation artifacts removed from main; rendered .m4a files and audio_url JSON stay."
+
+      # LOUD-FAILURE enforcement — intentionally the LAST step. By this point
+      # every success has been committed + pushed by the generator, the
+      # aggregated failure list is in the job summary, and the auto-resume
+      # chain has already dispatched the retry run. Only NOW do we turn the
+      # run red so the failure cannot hide behind a green 'success'.
+      - name: Honest run status — fail the run if any chapter failed
+        if: always()
+        run: |
+          FAILED="${{ steps.gen.outputs.failed }}"
+          RC="${{ steps.gen.outputs.rc }}"
+          FAILED=${FAILED:-0}; RC=${RC:-0}
+          if [ "$FAILED" != "0" ]; then
+            echo "::error::Audio generation marked FAILED: $FAILED chapter(s) exhausted all retries. Partial progress was committed; the auto-resume chain (or a manual re-dispatch) retries exactly the failed chapters. See the job summary for the full list."
+            exit 1
+          fi
+          if [ "$RC" != "0" ]; then
+            echo "::error::Audio generation marked FAILED: generator exited with code $RC before completing (see the generation log above). Any committed progress is safe; re-run to resume."
+            exit 1
+          fi
+          echo "No failed chapters and generator exited cleanly — run status stays green."

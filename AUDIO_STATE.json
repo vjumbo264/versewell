@@ -121,9 +121,9 @@
       {
         "i": 9,
         "version": "NLV",
-        "voice": "en-US-DavisNeural",
+        "voice": "en-US-SteffanNeural",
         "gender": "Male",
-        "style": "Confident, considerate narrator"
+        "style": "Calm, measured narrator (replaced en-US-DavisNeural, retired by Microsoft 2026-09)"
       },
       {
         "i": 10,
@@ -142,9 +142,9 @@
       {
         "i": 12,
         "version": "VOICE",
-        "voice": "en-US-NancyNeural",
+        "voice": "en-US-EmmaNeural",
         "gender": "Female",
-        "style": "Considerate, matter-of-fact narrator"
+        "style": "Calm, warm narrator (replaced en-US-NancyNeural, retired by Microsoft 2026-09)"
       }
     ]
   },
