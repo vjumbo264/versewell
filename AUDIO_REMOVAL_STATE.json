@@ -94,8 +94,8 @@
       "summary": "Removed load_audio_allowlist/AUDIO_ALLOWLIST and the audio_url payload field from scripts/generate_static.py; regenerated the full mirror — 13,528 chapter JSON files rewritten, zero files still contain audio_url; verses/intros/footnotes/navigation spot-checked intact (CEV Genesis 1)."
     },
     "task-05": {
-      "status": "in_progress",
-      "summary": "Code done: audio_url removed from worker/index.js; deploy.yml stripped of audio staging + versewell-audio Pages deploy; deleted site/_headers.audio, site/_headers (m4a-only), site/_redirects (m4a proxy). Worker redeploy + live verification next."
+      "status": "done",
+      "summary": "audio_url removed from worker/index.js chapter handler; deploy.yml stripped of audio staging + versewell-audio Pages project steps; site/_headers.audio, site/_headers (m4a-only), site/_redirects (m4a proxy) deleted. Worker redeployed live (wrangler, Version ID ee1fbb30); live GET /api/v1/versions/cev/genesis/1 verified: no audio_url field, 31 verses + intros + footnotes intact."
     },
     "task-06": {
       "status": "pending",
