@@ -34,7 +34,30 @@ jobs:
         working-directory: worker
         run: npx --yes wrangler@latest deploy
 
+      # Cloudflare Pages caps a deployment at 20,000 files (free plan). The
+      # full site tree (chapter JSON + chapter .m4a audio) exceeds that, so
+      # audio deploys to a SEPARATE Pages project (versewell-audio) and the
+      # main site proxies /static-data/*.m4a to it via site/_redirects (200).
+      - name: Stage main site without audio
+        run: |
+          mkdir -p deploy-site
+          rsync -a --exclude='*.m4a' --exclude='_headers.audio' site/ deploy-site/
+          echo "main site file count: $(find deploy-site -type f | wc -l)"
+
       - name: Deploy reading site to Pages
-        run: npx --yes wrangler@latest pages deploy site --project-name=versewell --branch=main
+        run: npx --yes wrangler@latest pages deploy deploy-site --project-name=versewell --branch=main
+        env:
+          CI: "true"
+
+      - name: Stage audio-only tree
+        run: |
+          mkdir -p deploy-audio
+          cd site
+          find static-data -name '*.m4a' -print0 | cpio -pmd0 --quiet ../deploy-audio/
+          cp _headers.audio ../deploy-audio/_headers
+          echo "audio file count: $(find ../deploy-audio -type f -name '*.m4a' | wc -l)"
+
+      - name: Deploy audio to Pages (versewell-audio project)
+        run: npx --yes wrangler@latest pages deploy deploy-audio --project-name=versewell-audio --branch=main
         env:
           CI: "true"

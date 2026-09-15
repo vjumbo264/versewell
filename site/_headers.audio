@@ -1,0 +1,4 @@
+/static-data/*.m4a
+  Content-Type: audio/mp4
+  Cache-Control: public, max-age=86400
+  Access-Control-Allow-Origin: *

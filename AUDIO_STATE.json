@@ -255,5 +255,12 @@
     "5_workflow_idempotent_on_rerun": "unconfirmed_pending_workflow_run_twice",
     "6_previously_incomplete_version_split_ot_nt_correctly": "unconfirmed_live_after_deploy",
     "7_no_other_version_book_listing_regressed": "unconfirmed_live_after_deploy"
+  },
+  "deploy_fix_audio_pages_split_v1": {
+    "date": "2026-09-15",
+    "root_cause": "Cloudflare Pages free plan caps a deployment at 20,000 files; the full site tree (13,558 chapter JSON + 11,150 chapter .m4a + assets = 24,736 files) exceeds it, so every deploy since audio landed failed at 'Deploy reading site to Pages' (run 34596865127 + re-dispatch 34924010548, both exit 1). Audio was committed to git but never published \u2014 live HEAD returned the SPA fallback text/html.",
+    "fix": "Split audio into a second Pages project 'versewell-audio' (audio-only tree ~11k files). Main 'versewell' project now deploys site/ minus *.m4a (~13.6k files) with _redirects proxying /static-data/*.m4a -> https://versewell-audio.pages.dev (200, URL-preserving) and _headers forcing Content-Type: audio/mp4. R2 was not an option (R2 not enabled on account, error 10042; provided CF token also invalid).",
+    "consumers_unaffected": "ForgeHouse 50 versewellProvider.getAudioUrl() + the reading site both keep the canonical /static-data/<ver>/<book>/<ch>.m4a URL; headExists() content-type check (audio/*) now passes via _headers.",
+    "status": "implemented_pending_deploy_verify"
   }
 }
