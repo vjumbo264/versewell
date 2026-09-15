@@ -282,20 +282,13 @@ async function renderReader(version, bookParam, chapterStr) {
       ? `<a href="#/v/${esc(version)}/${encRef(target.book)}/${target.chapter}">${label}</a>`
       : `<a class="disabled">${label}</a>`;
 
-  // Chapter audio: render a player ONLY when the static mirror reports a
-  // real audio_url. Versions outside the fixed audio allowlist (and chapters
-  // not yet generated) return audio_url:null and the player is hidden
-  // entirely — never a broken/empty <audio> element.
-  const audioHtml = data.audio_url
-    ? `<div class="audio-player"><span class="audio-label">\u25B6 Listen — ${esc(version)}</span><audio controls preload="none" src="${esc(data.audio_url)}"></audio></div>`
-    : '';
-
+  // Chapter audio narration was explored and removed (persistent Edge TTS
+  // reliability issues) — the Reader intentionally renders no audio player.
   view.innerHTML = `
     <div class="reader-head">
       <h1>${esc(data.book_name)} ${data.chapter}</h1>
       <span class="reader-sub">${esc(version)}</span>
     </div>
-    ${audioHtml}
     <div class="chapter-nav">${nav(data.navigation.prev, '← Previous')}${nav(data.navigation.next, 'Next →')}</div>
     <div class="reader-body">${versesHtml}${trailingIntros}</div>
     <div class="chapter-nav">${nav(data.navigation.prev, '← Previous')}${nav(data.navigation.next, 'Next →')}</div>`;

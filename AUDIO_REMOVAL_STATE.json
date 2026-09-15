@@ -98,8 +98,8 @@
       "summary": "audio_url removed from worker/index.js chapter handler; deploy.yml stripped of audio staging + versewell-audio Pages project steps; site/_headers.audio, site/_headers (m4a-only), site/_redirects (m4a proxy) deleted. Worker redeployed live (wrangler, Version ID ee1fbb30); live GET /api/v1/versions/cev/genesis/1 verified: no audio_url field, 31 verses + intros + footnotes intact."
     },
     "task-06": {
-      "status": "pending",
-      "summary": "Remove audio player UI from site/app.js and .audio-player styles from site/style.css. Redeploy site."
+      "status": "done",
+      "summary": "Removed the audioHtml player block from the Reader render in site/app.js (genuinely absent, not hidden) and the .audio-player styles from site/style.css. node --check passes. Site redeploy happens after task-07 docs edits (same Pages artifact, one deploy)."
     },
     "task-07": {
       "status": "pending",
