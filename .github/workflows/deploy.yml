@@ -57,6 +57,13 @@ jobs:
           cp _headers.audio ../deploy-audio/_headers
           echo "audio file count: $(find ../deploy-audio -type f -name '*.m4a' | wc -l)"
 
+      # wrangler pages deploy does NOT auto-create the project — create it
+      # first (idempotent: ignore the error when it already exists).
+      - name: Ensure versewell-audio Pages project exists
+        run: npx --yes wrangler@latest pages project create versewell-audio --production-branch=main || echo "project already exists"
+        env:
+          CI: "true"
+
       - name: Deploy audio to Pages (versewell-audio project)
         run: npx --yes wrangler@latest pages deploy deploy-audio --project-name=versewell-audio --branch=main
         env:
