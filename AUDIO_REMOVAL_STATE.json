@@ -90,8 +90,8 @@
       "summary": "git rm --sparse all 12,052 committed .m4a audio files; zero audio files remain tracked."
     },
     "task-04": {
-      "status": "pending",
-      "summary": "Remove audio_url from scripts/generate_static.py; regenerate all static JSON without the field (13,528 files affected)."
+      "status": "done",
+      "summary": "Removed load_audio_allowlist/AUDIO_ALLOWLIST and the audio_url payload field from scripts/generate_static.py; regenerated the full mirror — 13,528 chapter JSON files rewritten, zero files still contain audio_url; verses/intros/footnotes/navigation spot-checked intact (CEV Genesis 1)."
     },
     "task-05": {
       "status": "pending",
