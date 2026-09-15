@@ -86,8 +86,8 @@
       "summary": "Deleted .github/workflows/generate-audio.yml and scripts/generate_audio.py from the repo."
     },
     "task-03": {
-      "status": "pending",
-      "summary": "git rm every committed .m4a (12,052 files) from the repository."
+      "status": "done",
+      "summary": "git rm --sparse all 12,052 committed .m4a audio files; zero audio files remain tracked."
     },
     "task-04": {
       "status": "pending",
