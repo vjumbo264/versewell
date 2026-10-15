@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS verses (
   chapter    INTEGER NOT NULL,
   verse      INTEGER NOT NULL,
   text       TEXT NOT NULL,
+  heading_before TEXT,
   PRIMARY KEY (version, book, chapter, verse)
 );
 

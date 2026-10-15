@@ -75,31 +75,56 @@ def load_meta(con):
 
 
 def heading_sets(con):
-    """chapter ref -> set of section-heading strings from the chapter HTML."""
+    """Returns (headings_by_ref, headings_by_verse) from chapter HTML."""
     out = {}
+    by_verse = {}
     for ref, content in con.execute(
         "SELECT reference_osis, content FROM chapters "
         "WHERE reference_osis NOT LIKE '%.int'"
     ):
         hs = set()
         for m in re.finditer(r"(?is)<h[2-4][^>]*>(.*?)</h[2-4]>", content or ""):
-            t = re.sub(r"<[^>]+>", "", m.group(1))
-            t = re.sub(r"\s+", " ", t).strip()
+            raw = m.group(1)
+            vm = re.search(r'class="text ([A-Za-z0-9]+)-(\d+)-(\d+)"', raw)
+            clean = re.sub(r'(?is)<sup[^>]*>.*?</sup>', '', raw)
+            t = re.sub(r'<[^>]+>', '', clean)
+            t = re.sub(r'\s+', ' ', t).strip()
             if t:
                 hs.add(t)
+                if vm:
+                    by_verse[(vm.group(1), int(vm.group(2)), int(vm.group(3)))] = t
         out[ref] = hs
-    return out
+    return out, by_verse
 
 
-def strip_heading(text, headings):
-    if not text or "\n" not in text or not headings:
-        return text
-    first, rest = text.split("\n", 1)
-    if first.strip() in headings and rest.strip():
-        return rest.strip()
-    return text
-
-
+def extract_heading_and_text(text, hs, anchored_heading):
+    """Separates section heading and verse text cleanly without guessing."""
+    if not text:
+        return None, text
+    # 1. Anchored heading match
+    if anchored_heading and text.startswith(anchored_heading):
+        rem = text[len(anchored_heading):].strip()
+        if rem:
+            return anchored_heading, rem
+    # 2. Heading followed by newline
+    if chr(10) in text:
+        first, rest = text.split(chr(10), 1)
+        f_clean = first.strip()
+        if f_clean in hs:
+            return f_clean, rest.strip()
+        for h in sorted(hs, key=len, reverse=True):
+            if f_clean == h or f_clean.startswith(h):
+                rem = text[len(first):].strip()
+                if rem:
+                    return h, rem
+    # 3. Space-joined heading (starts with heading in hs followed by space and capital)
+    for h in sorted(hs, key=len, reverse=True):
+        if len(h) >= 3 and text.startswith(h):
+            if len(text) > len(h) and text[len(h)] in (' ', chr(9), chr(10), chr(13)):
+                rem = text[len(h):].strip()
+                if rem and rem[0].isupper():
+                    return h, rem
+    return None, text
 def parse_fen_target(content):
     """BibleGateway-style note: target ref lives in title=\"Go to Book C:V\"."""
     m = re.search(r'title="Go to ([^"]+?)\s+(\d+):(\d+)"', content or "")
@@ -163,7 +188,7 @@ def import_file(path, out_sql):
 
     is_cev = code == "CEV"
     chapter_shift = 1 if is_cev else 0
-    headings = heading_sets(con)
+    headings, headings_by_v = heading_sets(con)
 
     # --- long-aside intros (VOICE-style commentary blocks) ---
     # Some exports (VOICE) store commentary/intro blocks in the chapter HTML
@@ -208,7 +233,9 @@ def import_file(path, out_sql):
         # heading lookup uses the ORIGINAL (pre-shift) chapter ref, because the
         # source chapters table is in the source's own numbering
         src_ch = ch + chapter_shift
-        text = strip_heading(text, headings.get(f"{r['book']}.{src_ch}"))
+        hs = headings.get(f"{r['book']}.{src_ch}", set())
+        anchored_h = headings_by_v.get((r['book'], src_ch, vnum))
+        heading_before, text = extract_heading_and_text(text, hs, anchored_h)
         text = re.sub(r"[ \t]+", " ", text).strip()
         if not text:
             continue
@@ -252,7 +279,7 @@ def import_file(path, out_sql):
                     "could not be located in its verse text; left in verse text",
                     file=sys.stderr,
                 )
-        verses.append((code, r["book"], b["human"], b["number"], ch, vnum, text))
+        verses.append((code, r["book"], b["human"], b["number"], ch, vnum, text, heading_before))
 
     # Sanity check: any long-aside block that matched no verse row is a
     # silent-miss risk — surface it in the generation log.
@@ -362,7 +389,7 @@ def import_file(path, out_sql):
             vals = ",\n".join(batch)
             w(f"INSERT INTO {table} ({cols}) VALUES\n{vals};\n")
 
-    emit("verses", "version, book, book_name, book_order, chapter, verse, text", verses)
+    emit("verses", "version, book, book_name, book_order, chapter, verse, text, heading_before", verses)
     emit("footnotes", "version, book, chapter, verse, marker, note_text", footnotes)
     emit("section_intros", "version, book, chapter, start_verse, end_verse, intro_text", intros)
     w("COMMIT;\n")

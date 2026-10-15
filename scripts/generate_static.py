@@ -191,10 +191,12 @@ def generate_version(importer, path, out_root):
             ):
                 fn_rows.setdefault(fr["verse"], []).append({"marker": fr["marker"], "text": fr["note_text"]})
             for vr in con.execute(
-                "SELECT verse, text FROM verses WHERE version=? AND book=? AND chapter=? ORDER BY verse",
+                "SELECT verse, text, heading_before FROM verses WHERE version=? AND book=? AND chapter=? ORDER BY verse",
                 (code, b["book"], ch),
             ):
                 v = {"verse": vr["verse"], "text": vr["text"]}
+                if vr["heading_before"]:
+                    v["heading_before"] = vr["heading_before"]
                 if vr["verse"] in fn_rows:
                     v["footnotes"] = fn_rows[vr["verse"]]
                 verses.append(v)
