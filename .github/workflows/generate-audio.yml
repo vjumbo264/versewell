@@ -20,6 +20,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   audio_matrix:
@@ -53,19 +54,24 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="audio-${{ matrix.version }}"
-          echo "Checking release $TAG..."
+          echo "Checking release $TAG in $GITHUB_REPOSITORY..."
           mkdir -p "audio_${{ matrix.version }}"
-          if gh release view "$TAG" >/dev/null 2>&1; then
+          mkdir -p "/tmp/audio_out_${{ matrix.version }}"
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Release $TAG exists. Downloading manifest.json..."
-            gh release download "$TAG" -p "manifest.json" -D "audio_${{ matrix.version }}" || true
+            gh release download "$TAG" -p "manifest.json" -D "audio_${{ matrix.version }}" -R "$GITHUB_REPOSITORY" || true
+            if [ -f "audio_${{ matrix.version }}/manifest.json" ]; then
+              cp "audio_${{ matrix.version }}/manifest.json" "/tmp/audio_out_${{ matrix.version }}/manifest.json"
+            fi
           else
             echo "Release $TAG does not exist. Creating..."
-            gh release create "$TAG" --title "VerseWell Audio - ${{ matrix.version }} (New Testament)" --notes "Audio narration assets for ${{ matrix.version }}"
+            gh release create "$TAG" --title "VerseWell Audio - ${{ matrix.version }} (New Testament)" --notes "Audio narration assets for ${{ matrix.version }}" -R "$GITHUB_REPOSITORY"
           fi
 
       - name: Run Audio Generator
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           EXTRA_FLAGS=""
           if [ "${{ github.event.inputs.pilot }}" = "true" ]; then
@@ -74,7 +80,6 @@ jobs:
           if [ "${{ github.event.inputs.test_failure }}" = "true" ]; then
             EXTRA_FLAGS="--simulate-failure"
           fi
-
           python3 scripts/generate_audio.py --version "${{ matrix.version }}" $EXTRA_FLAGS
 
       - name: Upload Audio Assets & Manifest to GitHub Release
@@ -84,11 +89,11 @@ jobs:
           TAG="audio-${{ matrix.version }}"
           OUT_DIR="/tmp/audio_out_${{ matrix.version }}"
           if [ -d "$OUT_DIR" ]; then
-            cd "$OUT_DIR"
-            echo "Uploading assets to release $TAG..."
-            for f in *.m4a manifest.json; do
+            echo "Final check for uploading assets to release $TAG in $GITHUB_REPOSITORY..."
+            for f in "$OUT_DIR"/*.m4a "$OUT_DIR"/manifest.json; do
               if [ -f "$f" ]; then
-                gh release upload "$TAG" "$f" --clobber
+                echo "Uploading $(basename "$f")..."
+                gh release upload "$TAG" "$f" --clobber -R "$GITHUB_REPOSITORY"
               fi
             done
           fi
@@ -101,9 +106,9 @@ jobs:
           MANIFEST="/tmp/audio_out_${{ matrix.version }}/manifest.json"
           if [ -f "$MANIFEST" ]; then
             DONE=$(python3 -c "import json; m=json.load(open('$MANIFEST')); print(len(m.get('chapters', [])))")
-            echo "Chapters completed so far: $DONE / 260"
-            if [ "$DONE" -lt 260 ] && [ "${{ github.event.inputs.pilot }}" != "true" ]; then
+            echo "Chapters completed so far for ${{ matrix.version }}: $DONE / 260"
+            if [ "$DONE" -lt 260 ] && [ "${{ github.event.inputs.pilot }}" != "true" ] && [ "${{ github.event.inputs.test_failure }}" != "true" ]; then
               echo "Dispatching continuation run for ${{ matrix.version }}..."
-              gh workflow run generate-audio.yml -f single_version="${{ matrix.version }}" || true
+              gh workflow run generate-audio.yml -R "$GITHUB_REPOSITORY" -f single_version="${{ matrix.version }}" || true
             fi
           fi
