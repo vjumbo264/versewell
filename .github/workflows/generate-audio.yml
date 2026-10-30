@@ -1,0 +1,109 @@
+name: "VerseWell Audio Generation Pipeline"
+
+on:
+  schedule:
+    # Run every 4 hours to resume any incomplete translations
+    - cron: '0 */4 * * *'
+  workflow_dispatch:
+    inputs:
+      test_failure:
+        description: 'Simulate a deliberate failure to test CI red response'
+        type: boolean
+        default: false
+      pilot:
+        description: 'Run 2-chapter pilot only'
+        type: boolean
+        default: false
+      single_version:
+        description: 'Run single version (kjv, niv, tlb, gw, voice, or all)'
+        default: 'all'
+
+permissions:
+  contents: write
+
+jobs:
+  audio_matrix:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        version: [kjv, niv, tlb, gw, voice]
+    steps:
+      - name: Filter version if single_version specified
+        if: ${{ github.event.inputs.single_version != '' && github.event.inputs.single_version != 'all' && github.event.inputs.single_version != matrix.version }}
+        run: |
+          echo "Skipping ${{ matrix.version }} (single_version was ${{ github.event.inputs.single_version }})"
+          exit 0
+
+      - uses: actions/checkout@v4
+
+      - name: Set up Python & ffmpeg
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y ffmpeg
+          python3 -m pip install edge-tts aiohttp
+
+      - name: Check existing release & manifest
+        id: check_release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="audio-${{ matrix.version }}"
+          echo "Checking release $TAG..."
+          mkdir -p "audio_${{ matrix.version }}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG exists. Downloading manifest.json..."
+            gh release download "$TAG" -p "manifest.json" -D "audio_${{ matrix.version }}" || true
+          else
+            echo "Release $TAG does not exist. Creating..."
+            gh release create "$TAG" --title "VerseWell Audio - ${{ matrix.version }} (New Testament)" --notes "Audio narration assets for ${{ matrix.version }}"
+          fi
+
+      - name: Run Audio Generator
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          EXTRA_FLAGS=""
+          if [ "${{ github.event.inputs.pilot }}" = "true" ]; then
+            EXTRA_FLAGS="--pilot"
+          fi
+          if [ "${{ github.event.inputs.test_failure }}" = "true" ]; then
+            EXTRA_FLAGS="--simulate-failure"
+          fi
+
+          python3 scripts/generate_audio.py --version "${{ matrix.version }}" $EXTRA_FLAGS
+
+      - name: Upload Audio Assets & Manifest to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="audio-${{ matrix.version }}"
+          OUT_DIR="/tmp/audio_out_${{ matrix.version }}"
+          if [ -d "$OUT_DIR" ]; then
+            cd "$OUT_DIR"
+            echo "Uploading assets to release $TAG..."
+            for f in *.m4a manifest.json; do
+              if [ -f "$f" ]; then
+                gh release upload "$TAG" "$f" --clobber
+              fi
+            done
+          fi
+
+      - name: Self-Chain Next Run If Unfinished
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Checking if all 260 chapters are completed..."
+          MANIFEST="/tmp/audio_out_${{ matrix.version }}/manifest.json"
+          if [ -f "$MANIFEST" ]; then
+            DONE=$(python3 -c "import json; m=json.load(open('$MANIFEST')); print(len(m.get('chapters', [])))")
+            echo "Chapters completed so far: $DONE / 260"
+            if [ "$DONE" -lt 260 ] && [ "${{ github.event.inputs.pilot }}" != "true" ]; then
+              echo "Dispatching continuation run for ${{ matrix.version }}..."
+              gh workflow run generate-audio.yml -f single_version="${{ matrix.version }}" || true
+            fi
+          fi
