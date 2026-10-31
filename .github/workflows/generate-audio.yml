@@ -2,16 +2,16 @@ name: "VerseWell Audio Generation Pipeline"
 
 on:
   schedule:
-    # Run every 4 hours to resume any incomplete translations
-    - cron: '0 */4 * * *'
+    # Resume any incomplete translation every 2 hours
+    - cron: '0 */2 * * *'
   workflow_dispatch:
     inputs:
       test_failure:
-        description: 'Simulate a deliberate failure to test CI red response'
+        description: 'Simulate a deliberate failure to verify CI turns red and nothing is published'
         type: boolean
         default: false
       pilot:
-        description: 'Run 2-chapter pilot only'
+        description: 'Run isolated 2-chapter pilot verification'
         type: boolean
         default: false
       single_version:
@@ -25,47 +25,40 @@ permissions:
 jobs:
   audio_matrix:
     runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.single_version == '' || github.event.inputs.single_version == 'all' || github.event.inputs.single_version == matrix.version }}
     strategy:
       fail-fast: false
       matrix:
         version: [kjv, niv, tlb, gw, voice]
-    steps:
-      - name: Filter version if single_version specified
-        if: ${{ github.event.inputs.single_version != '' && github.event.inputs.single_version != 'all' && github.event.inputs.single_version != matrix.version }}
-        run: |
-          echo "Skipping ${{ matrix.version }} (single_version was ${{ github.event.inputs.single_version }})"
-          exit 0
 
+    steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python & ffmpeg
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
+      - name: Install ffmpeg, edge-tts, and offline Piper fallback
         run: |
           sudo apt-get update && sudo apt-get install -y ffmpeg
-          python3 -m pip install edge-tts aiohttp
+          python3 -m pip install --upgrade pip
+          python3 -m pip install edge-tts aiohttp piper-tts
 
       - name: Check existing release & manifest
-        id: check_release
+        if: ${{ github.event.inputs.pilot != 'true' && github.event.inputs.test_failure != 'true' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="audio-${{ matrix.version }}"
-          echo "Checking release $TAG in $GITHUB_REPOSITORY..."
-          mkdir -p "audio_${{ matrix.version }}"
-          mkdir -p "/tmp/audio_out_${{ matrix.version }}"
+          mkdir -p "audio_${{ matrix.version }}" "/tmp/audio_out_${{ matrix.version }}"
           if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "Release $TAG exists. Downloading manifest.json..."
             gh release download "$TAG" -p "manifest.json" -D "audio_${{ matrix.version }}" -R "$GITHUB_REPOSITORY" || true
             if [ -f "audio_${{ matrix.version }}/manifest.json" ]; then
               cp "audio_${{ matrix.version }}/manifest.json" "/tmp/audio_out_${{ matrix.version }}/manifest.json"
             fi
           else
-            echo "Release $TAG does not exist. Creating..."
-            gh release create "$TAG" --title "VerseWell Audio - ${{ matrix.version }} (New Testament)" --notes "Audio narration assets for ${{ matrix.version }}" -R "$GITHUB_REPOSITORY"
+            gh release create "$TAG" --title "VerseWell Audio - ${{ matrix.version }} (New Testament)" --notes "Verified NT audio narration assets for ${{ matrix.version }}" -R "$GITHUB_REPOSITORY"
           fi
 
       - name: Run Audio Generator
@@ -82,32 +75,16 @@ jobs:
           fi
           python3 scripts/generate_audio.py --version "${{ matrix.version }}" $EXTRA_FLAGS
 
-      - name: Upload Audio Assets & Manifest to GitHub Release
+      - name: Self-Chain Continuation Run If Incomplete
+        if: ${{ always() && github.event.inputs.pilot != 'true' && github.event.inputs.test_failure != 'true' }}
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.AUDIO_RESUME_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
-          TAG="audio-${{ matrix.version }}"
-          OUT_DIR="/tmp/audio_out_${{ matrix.version }}"
-          if [ -d "$OUT_DIR" ]; then
-            echo "Final check for uploading assets to release $TAG in $GITHUB_REPOSITORY..."
-            for f in "$OUT_DIR"/*.m4a "$OUT_DIR"/manifest.json; do
-              if [ -f "$f" ]; then
-                echo "Uploading $(basename "$f")..."
-                gh release upload "$TAG" "$f" --clobber -R "$GITHUB_REPOSITORY"
-              fi
-            done
-          fi
-
-      - name: Self-Chain Next Run If Unfinished
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          echo "Checking if all 260 chapters are completed..."
           MANIFEST="/tmp/audio_out_${{ matrix.version }}/manifest.json"
           if [ -f "$MANIFEST" ]; then
             DONE=$(python3 -c "import json; m=json.load(open('$MANIFEST')); print(len(m.get('chapters', [])))")
-            echo "Chapters completed so far for ${{ matrix.version }}: $DONE / 260"
-            if [ "$DONE" -lt 260 ] && [ "${{ github.event.inputs.pilot }}" != "true" ] && [ "${{ github.event.inputs.test_failure }}" != "true" ]; then
+            echo "Verified chapters for ${{ matrix.version }}: $DONE / 260"
+            if [ "$DONE" -lt 260 ]; then
               echo "Dispatching continuation run for ${{ matrix.version }}..."
               gh workflow run generate-audio.yml -R "$GITHUB_REPOSITORY" -f single_version="${{ matrix.version }}" || true
             fi
