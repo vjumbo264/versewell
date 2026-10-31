@@ -1,65 +1,59 @@
 # VerseWell Data Contract
 
-## 1. Overview
-VerseWell is a public scripture platform whose single source of truth is the static JSON tree in `site/static-data/`.
-This document defines the strict API and data contract between VerseWell and client consumers (including the Android application and the Audio Generation Pipeline).
+## 1. Architecture & Single Source of Truth
+VerseWell serves 12 church-produced Bible translations exclusively from static JSON (`site/static-data/`) generated deterministically by `scripts/generate_static.py` from `bible-sources/*.sqlite3`. Neither Cloudflare D1 nor KV is used. Both `versewell.pages.dev` and `versewell-api.vjumbo264.workers.dev` read this exact static tree.
 
-## 2. Scripture Structure
-Each chapter is served at `/api/v1/versions/:version/:book/:chapter` (and statically at `/static-data/:version_slug/:book_slug/:chapter.json`).
+## 2. Book List Contract (`/api/v1/versions/:version/books` & `/static-data/:v/index.json`)
+Every book object carries canonical `testament` (`"OT"` or `"NT"`) and URL `slug` so translations with partial Old Testament coverage (such as `TPT` with 30 books or `MSG`) never misclassify New Testament books under Old Testament:
 
 ```json
 {
-  "version": "KJV",
-  "book": "Matthew",
+  "book": "Matt",
+  "book_name": "Matthew",
+  "book_order": 4,
+  "chapters": 28,
+  "verse_count": 1071,
+  "slug": "matthew",
+  "testament": "NT"
+}
+```
+
+## 3. Chapter Payload Contract (`/api/v1/versions/:version/:book/:chapter`)
+```json
+{
+  "version": "NIV",
+  "book": "Matt",
   "book_name": "Matthew",
   "chapter": 1,
-  "intros": [
-    {
-      "start_verse": 1,
-      "end_verse": 17,
-      "text": "Section introduction text here"
-    }
-  ],
+  "intro": null,
+  "intros": null,
   "verses": [
     {
       "verse": 1,
-      "text": "The book of the generation of Jesus Christ, the son of David, the son of Abraham.",
+      "text": "This is the genealogy of Jesus the Messiah the son of David, the son of Abraham:",
       "heading_before": "The Genealogy of Jesus the Messiah",
       "footnotes": [
-        {
-          "marker": "a",
-          "text": "Or is an account of the origin"
-        }
+        { "marker": "a", "text": "Or is an account of the origin" }
       ]
     }
   ],
   "navigation": {
-    "previous": null,
-    "next": {"book": "Matthew", "chapter": 2}
+    "prev": { "book": "Mal", "chapter": 4 },
+    "next": { "book": "Matt", "chapter": 2 }
   }
 }
 ```
 
-## 3. Invariants & Rules
-1. **Clean Verse Text**:
-   - `text` contains ONLY the pure scripture words of the verse.
-   - Section intros, headings, chapter labels, verse numbers, and footnote references must NEVER be concatenated into or pollute `text`.
-   - Audio generation pipelines synthesize ONLY `text`, ensuring spoken audio matches scripture without spurious text.
+### Strict Invariants (Enforced by `scripts/validate_data_contract.py` in CI)
+1. **Pure Verse Text**: `verses[].text` contains ONLY spoken scripture prose. Section introductions, editorial headings, HTML tags, verse numbers, and footnote markers are never merged into `text`.
+2. **Section Introductions**: Stored in `intros` (`[{"start_verse": int, "end_verse": int, "text": string}]` when present, or `null` when absent). Verified live on `CEV` (66 book intros) and `VOICE` (44 long-aside intros).
+3. **Editorial Headings**: Stored in `verses[].heading_before` (`string`, omitted when absent).
+4. **Footnotes**: Canonical API shape is `[{"marker": string, "text": string}]`. Android clients (`BundledFootnoteListSerializer`) additionally tolerate plain string arrays `["..."]` for backward compatibility with older cached bundles.
 
-2. **Headings**:
-   - Any editorial section heading preceding a verse is stored in `heading_before`.
-   - If no heading precedes the verse, `heading_before` is omitted or `null`.
-
-3. **Footnotes**:
-   - Per-verse footnotes are represented as an array of objects: `[{"marker": string, "text": string}]`.
-   - Client applications must gracefully handle both object format `{"marker": "...", "text": "..."}` and legacy string format `"..."`.
-
-4. **Section Introductions**:
-   - Introductions spanning verse ranges are stored in `intros: [{"start_verse": int, "end_verse": int, "text": string}]`.
-   - Intros are never part of verse `text`.
-
-5. **Audio Pipeline Contract**:
-   - The audio generation pipeline processes only the 5 approved New Testament translations: `KJV`, `NIV`, `TLB`, `GW`, `VOICE`.
-   - Each translation has exactly 260 NT chapters (Matthew 1 through Revelation 22).
-   - Generated chapter audio files are hosted as release assets on `vjumbo264/versewell` tagged `audio-<code>`.
-   - Audio streaming API: `GET /api/v1/audio/:version/:book/:chapter` with HTTP 206 Partial Content (Range) support.
+## 4. Verified New Testament Counts for the 5 Audio Translations
+All 5 audio translations have **260 / 260** New Testament chapters (Matthew 1 – Revelation 22):
+- **KJV**: 260 chapters, 7,957 verses (Textus Receptus baseline)
+- **NIV**: 260 chapters, 7,941 verses (16 standard critical-text omissions footnoted, e.g. Matt 17:21, 18:11)
+- **GW**: 260 chapters, 7,943 verses (standard critical-text omissions + 3 John 1:15)
+- **VOICE**: 260 chapters, 7,755 verse rows + 5 NT section intros (combines poetic/dialogue verse pairs into anchored rows)
+- **TLB**: 260 chapters, 7,557 verse rows (paraphrase combining multi-verse spans into anchored rows)

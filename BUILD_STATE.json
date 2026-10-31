@@ -1,8 +1,8 @@
 {
-  "project": "VerseWell — public Bible REST API + reading website",
+  "project": "VerseWell \u2014 public Bible REST API + reading website",
   "repo": "https://github.com/vjumbo264/versewell",
   "build_complete": false,
-  "last_updated_utc": "2026-09-06",
+  "last_updated_utc": "2026-10-31T05:22:18Z",
   "stack": {
     "database": "Cloudflare D1 (SQLite)",
     "api": "Cloudflare Workers",
@@ -10,9 +10,9 @@
     "ci": "GitHub Actions",
     "constraints": [
       "Free tier only, end to end",
-      "No custom domain — production URLs are *.pages.dev and *.workers.dev",
+      "No custom domain \u2014 production URLs are *.pages.dev and *.workers.dev",
       "No user authentication anywhere",
-      "Operator works entirely from Android phone (Termux + browser dashboards) — no local CLI assumptions in docs"
+      "Operator works entirely from Android phone (Termux + browser dashboards) \u2014 no local CLI assumptions in docs"
     ]
   },
   "source_data": {
@@ -36,7 +36,7 @@
       "id": "task-02",
       "title": "Inventory Drive folder .sqlite files; inspect each file's actual schema; document in ARCHITECTURE.md",
       "status": "done",
-      "notes": "Inventoried Drive folder 1DWkrc33kGOCTR0LFZhMzANFi_IryA5wn via public embeddedfolderview + uc?export=download. 11 valid SQLite files: amp, cev, gw, kjv, msg(.db), niv2011, nkjv, nlt, nlv, tlb, voice. Common schema: books/verses(verse=REAL chapter.fff)/annotations/chapters/metadata. Quirks verified: CEV verses shifted +1 chapter (John 4.016 = John 3:16 text) + 66 book-intros as Xxx.int chapters; MSG merged sparse verses (13,118 rows); fen-N annotation link uses global per-book verse counter (AMP Gen 2:4 = fen-AMP-35a); annotation styles: fen-*/cen-* (BibleGateway) vs !f./!x. (USFM, CEV/KJV/MSG); leading section headings embedded in unformatted text. Full per-file table documented in ARCHITECTURE.md §1.",
+      "notes": "Inventoried Drive folder 1DWkrc33kGOCTR0LFZhMzANFi_IryA5wn via public embeddedfolderview + uc?export=download. 11 valid SQLite files: amp, cev, gw, kjv, msg(.db), niv2011, nkjv, nlt, nlv, tlb, voice. Common schema: books/verses(verse=REAL chapter.fff)/annotations/chapters/metadata. Quirks verified: CEV verses shifted +1 chapter (John 4.016 = John 3:16 text) + 66 book-intros as Xxx.int chapters; MSG merged sparse verses (13,118 rows); fen-N annotation link uses global per-book verse counter (AMP Gen 2:4 = fen-AMP-35a); annotation styles: fen-*/cen-* (BibleGateway) vs !f./!x. (USFM, CEV/KJV/MSG); leading section headings embedded in unformatted text. Full per-file table documented in ARCHITECTURE.md \u00a71.",
       "commits": [],
       "files_modified": [
         "ARCHITECTURE.md"
@@ -44,9 +44,9 @@
     },
     {
       "id": "task-03",
-      "title": "Design + commit unified D1 schema (versions, verses, footnotes, section_intros); document source→unified mapping in ARCHITECTURE.md",
+      "title": "Design + commit unified D1 schema (versions, verses, footnotes, section_intros); document source\u2192unified mapping in ARCHITECTURE.md",
       "status": "done",
-      "notes": "Unified D1 schema committed as schema.sql (versions/verses/footnotes/section_intros + lookup indexes). Source-to-unified mapping incl. all per-file quirks documented in ARCHITECTURE.md §2. Versions keyed by uppercased metadata.name code (AMP, CEV, GW, KJV, MSG, NIV2011, NKJV, NLT, NLV, TLB, VOICE). CEV chapter-1 shift applied on import; cen-/!x. cross-references skipped (footnotes only).",
+      "notes": "Unified D1 schema committed as schema.sql (versions/verses/footnotes/section_intros + lookup indexes). Source-to-unified mapping incl. all per-file quirks documented in ARCHITECTURE.md \u00a72. Versions keyed by uppercased metadata.name code (AMP, CEV, GW, KJV, MSG, NIV2011, NKJV, NLT, NLV, TLB, VOICE). CEV chapter-1 shift applied on import; cen-/!x. cross-references skipped (footnotes only).",
       "commits": [],
       "files_modified": [
         "schema.sql",
@@ -55,7 +55,7 @@
     },
     {
       "id": "task-04",
-      "title": "Create /bible-sources/ folder, copy each .sqlite into it, build import/migration script (sqlite file → unified D1 schema, incl. footnotes + section_intros)",
+      "title": "Create /bible-sources/ folder, copy each .sqlite into it, build import/migration script (sqlite file \u2192 unified D1 schema, incl. footnotes + section_intros)",
       "status": "done",
       "notes": "Import pipeline fully operational: /bible-sources/ holds the 10 church .sqlite3 files (voice.sqlite3 deliberately held back for the task-11 add-version demo, per D4). import.py maps each source onto the unified schema with per-file quirks (CEV +1 chapter shift, CEV book intros -> section_intros, MSG merged sparse verses, fen-N global verse counter, !f./fen- footnote styles, section-heading stripping). apply_d1.py uploads SQL to D1 via the Cloudflare API in <=90KB statement chunks, applying the versions row LAST as the atomic completion marker, and is quota-aware (stops gracefully at the D1 free-tier daily row-write limit so the daily scheduled workflow resumes).",
       "commits": [
@@ -75,7 +75,7 @@
       "id": "task-05",
       "title": "Create Cloudflare D1 database + Pages project via API; connect GitHub auto-deploy; set up Actions workflow with auto-import of new/changed /bible-sources/ files on deploy",
       "status": "done",
-      "notes": "All infra provisioned and LIVE: D1 database versewell-db (id in .d1_database_id), Worker versewell-api deployed via Cloudflare API and serving at https://versewell-api.vjumbo264.workers.dev, Pages project versewell serving https://versewell.pages.dev (HTTP 200). GitHub Actions workflow deploy.yml: on push to main + daily 02:17 UTC schedule -> apply_d1.py import (quota-aware) -> wrangler worker deploy -> wrangler pages deploy. Secrets CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID stored as GitHub Actions secrets. Full pipeline GREEN (run 34059918786). Fixes this session: (1) removed verses->versions FK (incompatible with versions-row-last atomic import; integrity enforced by pipeline; ensure_schema self-heals the legacy FK on the live table); (2) quota-aware import (exit 0 + notice on quota stop, incl. inside ensure_schema); (3) Pages deploy moved from hand-rolled direct-upload REST (silently broken: upload-token returned method_not_allowed, every deployment 500'd) to wrangler. NOTE: Pages project is direct-upload (no git source link) — auto-deploy happens via the Actions workflow step, which is the documented mechanism.",
+      "notes": "All infra provisioned and LIVE: D1 database versewell-db (id in .d1_database_id), Worker versewell-api deployed via Cloudflare API and serving at https://versewell-api.vjumbo264.workers.dev, Pages project versewell serving https://versewell.pages.dev (HTTP 200). GitHub Actions workflow deploy.yml: on push to main + daily 02:17 UTC schedule -> apply_d1.py import (quota-aware) -> wrangler worker deploy -> wrangler pages deploy. Secrets CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID stored as GitHub Actions secrets. Full pipeline GREEN (run 34059918786). Fixes this session: (1) removed verses->versions FK (incompatible with versions-row-last atomic import; integrity enforced by pipeline; ensure_schema self-heals the legacy FK on the live table); (2) quota-aware import (exit 0 + notice on quota stop, incl. inside ensure_schema); (3) Pages deploy moved from hand-rolled direct-upload REST (silently broken: upload-token returned method_not_allowed, every deployment 500'd) to wrangler. NOTE: Pages project is direct-upload (no git source link) \u2014 auto-deploy happens via the Actions workflow step, which is the documented mechanism.",
       "commits": [
         "fad7f52",
         "e350222",
@@ -192,7 +192,8 @@
     }
   ],
   "concerns_for_human_review": [
-    "D1 free-tier daily row-write quota (~100k rows/day) means the initial 10-version import necessarily spans ~3 days. This is an infrastructure limit, not a bug; the daily scheduled workflow completes it automatically. If faster initial availability is wanted, the only lever is a paid D1 plan — flagged here because paid tiers require operator confirmation."
+    "D1 free-tier daily row-write quota (~100k rows/day) means the initial 10-version import necessarily spans ~3 days. This is an infrastructure limit, not a bug; the daily scheduled workflow completes it automatically. If faster initial availability is wanted, the only lever is a paid D1 plan \u2014 flagged here because paid tiers require operator confirmation."
   ],
-  "resume_from": "task-06 import, quota-gated: wait for the daily scheduled deploy workflow (02:17 UTC) to resume the D1 import after the midnight-UTC quota reset; repeat daily until apply_d1.py reports all 10 versions imported (~268,513 verses / 24,354 footnotes / 66 intros). Then run task-06 verification (counts + CEV John 3 / Genesis intro spot-check) and task-11 live checks, then re-add voice.sqlite3 to /bible-sources/ for the add-version demo."
+  "resume_from": "task-06 import, quota-gated: wait for the daily scheduled deploy workflow (02:17 UTC) to resume the D1 import after the midnight-UTC quota reset; repeat daily until apply_d1.py reports all 10 versions imported (~268,513 verses / 24,354 footnotes / 66 intros). Then run task-06 verification (counts + CEV John 3 / Genesis intro spot-check) and task-11 live checks, then re-add voice.sqlite3 to /bible-sources/ for the add-version demo.",
+  "fixes_oct30_v1_master_state": "See vjumbo264/forgehouse50-android/BUILD_STATE.json (contract fixes_oct30_v1) for current cross-repo build & audio status."
 }

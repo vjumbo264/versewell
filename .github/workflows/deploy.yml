@@ -29,6 +29,8 @@ jobs:
       # (or a stale static tree has no source) — prevents silent discovery gaps.
       - name: Verify static mirror consistency
         run: python3 scripts/check_static_consistency.py
+      - name: Validate data contract
+        run: python3 scripts/validate_data_contract.py
 
       - name: Deploy API worker
         working-directory: worker

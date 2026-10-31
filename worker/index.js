@@ -520,6 +520,8 @@ export default {
           book_order: b.book_order,
           chapters: b.chapters,
           verse_count: b.verse_count,
+          slug: b.slug,
+          testament: b.testament,
         })),
       });
     }
@@ -540,6 +542,8 @@ export default {
         book_order: bookRow.book_order,
         chapters: bookRow.chapters,
         verse_count: bookRow.verse_count,
+        slug: bookRow.slug,
+        testament: bookRow.testament,
       });
     }
 
