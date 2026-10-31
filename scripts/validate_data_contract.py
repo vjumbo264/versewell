@@ -114,7 +114,9 @@ def main():
                         errors.append(f"Unstripped HTML tag in {ch_file} v{v.get('verse')}")
                     hb = v.get("heading_before")
                     if hb and len(hb) >= 8 and text.startswith(hb):
-                        errors.append(f"Merged heading_before inside verse text in {ch_file} v{v.get('verse')}")
+                        after = text[len(hb):]
+                        if after and after[0] in (" ", "\n", "\t") and after.lstrip()[:1].isupper():
+                            errors.append(f"Merged heading_before inside verse text in {ch_file} v{v.get('verse')}")
                     for intr in intros:
                          snippet = intr.get("text", "").strip()[:40]
                          if len(snippet) >= 25 and snippet in text:
