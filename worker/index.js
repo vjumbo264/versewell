@@ -20,7 +20,7 @@ const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
   'Access-Control-Allow-Headers': 'Range, Content-Type, Authorization',
-  'Access-Control-Expose-Headers': 'Content-Range, Content-Length, Accept-Ranges',
+  'Access-Control-Expose-Headers': 'Content-Range, Content-Length, Accept-Ranges, ETag',
   'Access-Control-Max-Age': '86400',
 };
 
@@ -173,7 +173,7 @@ async function handleAudioManifest(version) {
 async function handleAudioStream(request, version, book, chapterStr) {
   const v = version.toLowerCase();
   if (!AUDIO_CONFIG[v]) {
-    return notFound(`Audio is not supported for version '${version}'.`);
+    return notFound(`Audio is not supported for version '${version}'. Only KJV, NIV, TLB, GW, and VOICE have audio narration.`);
   }
 
   const ch = Number(chapterStr);
@@ -181,91 +181,197 @@ async function handleAudioStream(request, version, book, chapterStr) {
     return badRequest(`Invalid chapter '${chapterStr}'.`);
   }
 
-  const bookSlug = decodeURIComponent(book).toLowerCase().trim().replace(/\s+/g, '-').replace(/[^a-z0-9\-]/g, '');
+  // Resolve book via canonical static index (supports OSIS '1Cor', human '1 Corinthians', or slug '1-corinthians')
+  let bookSlug = decodeURIComponent(book).toLowerCase().trim().replace(/\s+/g, '-').replace(/[^a-z0-9\-]/g, '');
+  try {
+    const versionIndex = await getVersionIndex(v);
+    if (versionIndex && Array.isArray(versionIndex.books)) {
+      const matched = findBook(versionIndex.books, book);
+      if (matched && matched.slug) {
+        bookSlug = matched.slug;
+      }
+    }
+  } catch (_) {}
+
   const chPadded = String(ch).padStart(3, '0');
   const assetName = `${bookSlug}-${chPadded}.m4a`;
   const assetUrl = `${AUDIO_RELEASE_BASE}/audio-${v}/${assetName}`;
 
-  const reqHeaders = new Headers();
-  reqHeaders.set('User-Agent', 'VerseWell-API');
-  const rangeHeader = request.headers.get('range');
-  if (rangeHeader) {
-    reqHeaders.set('range', rangeHeader);
+  // Look up sha256 from cached manifest so Cache API & ETag are immutably keyed by content hash
+  let chapterSha = null;
+  let manifestEntry = null;
+  try {
+    const manifest = await getCachedAudioManifest(v);
+    if (manifest && Array.isArray(manifest.chapters)) {
+      manifestEntry = manifest.chapters.find((c) => c.file === assetName) || null;
+      if (manifestEntry && manifestEntry.sha256) {
+        chapterSha = manifestEntry.sha256;
+      }
+    }
+  } catch (_) {}
+
+  const etag = chapterSha ? `"${chapterSha}"` : null;
+  const inm = request.headers.get('if-none-match');
+  if (etag && inm && inm === etag) {
+    return new Response(null, {
+      status: 304,
+      headers: {
+        ETag: etag,
+        'Cache-Control': 'public, max-age=31536000, immutable',
+        ...CORS_HEADERS,
+      },
+    });
   }
 
+  const baseHeaders = {
+    'Content-Type': 'audio/mp4',
+    'Accept-Ranges': 'bytes',
+    'Cache-Control': chapterSha ? 'public, max-age=31536000, immutable' : 'public, max-age=3600',
+    ...(etag ? { ETag: etag } : {}),
+    ...CORS_HEADERS,
+  };
+
+  const rangeHeader = request.headers.get('range');
+
   try {
-    const upstreamRes = await fetch(assetUrl, {
-      method: request.method === 'HEAD' ? 'HEAD' : 'GET',
-      headers: reqHeaders,
-      redirect: 'follow',
-      cf: { cacheEverything: true },
-    });
+    // 1. Check Cloudflare Cache API keyed by sha256
+    const edgeCache = typeof caches !== 'undefined' && caches.default ? caches.default : null;
+    const cacheKeyUrl = `https://audio-cache.versewell.internal/${v}/${assetName}?sha=${chapterSha || 'live'}`;
+    const cacheKey = new Request(cacheKeyUrl, { method: 'GET' });
 
-    if (upstreamRes.status === 404) {
-      return notFound(`Audio chapter '${assetName}' for version '${v.toUpperCase()}' not found or not yet generated.`);
-    }
-
-    if (!upstreamRes.ok && upstreamRes.status !== 206) {
-      return serverError(`Upstream error fetching audio: ${upstreamRes.status}`);
-    }
-
-    // If client requested Range and upstream returned 206 directly:
-    if (upstreamRes.status === 206) {
-      const resHeaders = new Headers({
-        'Content-Type': 'audio/mp4',
-        'Accept-Ranges': 'bytes',
-        'Cache-Control': 'public, max-age=31536000, immutable',
-        ...CORS_HEADERS,
-      });
-      if (upstreamRes.headers.has('content-length')) {
-        resHeaders.set('Content-Length', upstreamRes.headers.get('content-length'));
+    let fullBytes = null;
+    if (edgeCache) {
+      const cachedRes = await edgeCache.match(cacheKey);
+      if (cachedRes && cachedRes.ok) {
+        if (request.method === 'HEAD' && !rangeHeader) {
+          const len = cachedRes.headers.get('content-length') || (manifestEntry ? String(manifestEntry.bytes) : '0');
+          return new Response(null, { status: 200, headers: { ...baseHeaders, 'Content-Length': len } });
+        }
+        fullBytes = await cachedRes.arrayBuffer();
       }
-      if (upstreamRes.headers.has('content-range')) {
-        resHeaders.set('Content-Range', upstreamRes.headers.get('content-range'));
-      }
-      return new Response(upstreamRes.body, { status: 206, headers: resHeaders });
     }
 
-    // Upstream returned 200 OK
-    const rawBuffer = await upstreamRes.arrayBuffer();
-    const totalLength = rawBuffer.byteLength;
+    // 2. If not in Cache API yet, fetch from GitHub Release
+    if (!fullBytes) {
+      // Fast path for HEAD without Range
+      if (request.method === 'HEAD' && !rangeHeader) {
+        const headRes = await fetch(assetUrl, {
+          method: 'HEAD',
+          headers: { 'User-Agent': 'VerseWell-API' },
+          redirect: 'follow',
+        });
+        if (headRes.status === 404) {
+          return notFound(`Audio chapter '${assetName}' for version '${v.toUpperCase()}' not found or not yet generated.`);
+        }
+        if (!headRes.ok) {
+          return serverError(`Upstream error fetching audio metadata: ${headRes.status}`);
+        }
+        const len = headRes.headers.get('content-length') || (manifestEntry ? String(manifestEntry.bytes) : '0');
+        return new Response(null, { status: 200, headers: { ...baseHeaders, 'Content-Length': len } });
+      }
 
+      // If client sent Range, try upstream Range first for low memory/latency when cold
+      if (rangeHeader && rangeHeader.startsWith('bytes=')) {
+        const upRangeRes = await fetch(assetUrl, {
+          method: request.method === 'HEAD' ? 'HEAD' : 'GET',
+          headers: { 'User-Agent': 'VerseWell-API', Range: rangeHeader },
+          redirect: 'follow',
+          cf: { cacheEverything: true, cacheTtl: 86400 },
+        });
+        if (upRangeRes.status === 404) {
+          return notFound(`Audio chapter '${assetName}' for version '${v.toUpperCase()}' not found or not yet generated.`);
+        }
+        if (upRangeRes.status === 416) {
+          const cr = upRangeRes.headers.get('content-range') || 'bytes */*';
+          return new Response(null, { status: 416, headers: { 'Content-Range': cr, ...CORS_HEADERS } });
+        }
+        if (upRangeRes.status === 206) {
+          const resHeaders = new Headers(baseHeaders);
+          if (upRangeRes.headers.has('content-length')) {
+            resHeaders.set('Content-Length', upRangeRes.headers.get('content-length'));
+          }
+          if (upRangeRes.headers.has('content-range')) {
+            resHeaders.set('Content-Range', upRangeRes.headers.get('content-range'));
+          }
+          return new Response(request.method === 'HEAD' ? null : upRangeRes.body, { status: 206, headers: resHeaders });
+        }
+        if (!upRangeRes.ok) {
+          return serverError(`Upstream error fetching audio: ${upRangeRes.status}`);
+        }
+        fullBytes = await upRangeRes.arrayBuffer();
+      } else {
+        const upFullRes = await fetch(assetUrl, {
+          method: 'GET',
+          headers: { 'User-Agent': 'VerseWell-API' },
+          redirect: 'follow',
+          cf: { cacheEverything: true, cacheTtl: 86400 },
+        });
+        if (upFullRes.status === 404) {
+          return notFound(`Audio chapter '${assetName}' for version '${v.toUpperCase()}' not found or not yet generated.`);
+        }
+        if (!upFullRes.ok) {
+          return serverError(`Upstream error fetching audio: ${upFullRes.status}`);
+        }
+        fullBytes = await upFullRes.arrayBuffer();
+      }
+
+      // Populate Cache API with full immutable payload when sha is known
+      if (edgeCache && fullBytes && fullBytes.byteLength > 0) {
+        const toCache = new Response(fullBytes.slice(0), {
+          status: 200,
+          headers: { ...baseHeaders, 'Content-Length': String(fullBytes.byteLength) },
+        });
+        try {
+          await edgeCache.put(cacheKey, toCache);
+        } catch (_) {}
+      }
+    }
+
+    const totalLength = fullBytes.byteLength;
+
+    // 3. Serve byte-range slice if requested
     if (rangeHeader && rangeHeader.startsWith('bytes=')) {
-      const parts = rangeHeader.replace('bytes=', '').split('-');
-      const start = parseInt(parts[0], 10) || 0;
-      let end = parts[1] ? parseInt(parts[1], 10) : totalLength - 1;
-      if (end >= totalLength) end = totalLength - 1;
-
-      if (start > end || start >= totalLength) {
+      const spec = rangeHeader.slice(6).trim();
+      const dashIdx = spec.indexOf('-');
+      let start = 0;
+      let end = totalLength - 1;
+      if (dashIdx === 0) {
+        const suffix = parseInt(spec.slice(1), 10);
+        if (!Number.isFinite(suffix) || suffix <= 0) {
+          return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${totalLength}`, ...CORS_HEADERS } });
+        }
+        start = Math.max(0, totalLength - suffix);
+      } else {
+        const startStr = spec.slice(0, dashIdx);
+        const endStr = dashIdx >= 0 ? spec.slice(dashIdx + 1) : '';
+        start = parseInt(startStr, 10);
+        end = endStr ? parseInt(endStr, 10) : totalLength - 1;
+      }
+      if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || start > end || start >= totalLength) {
         return new Response(null, {
           status: 416,
-          headers: {
-            'Content-Range': `bytes */${totalLength}`,
-            ...CORS_HEADERS,
-          },
+          headers: { 'Content-Range': `bytes */${totalLength}`, ...CORS_HEADERS },
         });
       }
-
-      const chunk = rawBuffer.slice(start, end + 1);
-      const resHeaders = new Headers({
-        'Content-Type': 'audio/mp4',
-        'Content-Range': `bytes ${start}-${end}/${totalLength}`,
-        'Content-Length': String(chunk.byteLength),
-        'Accept-Ranges': 'bytes',
-        'Cache-Control': 'public, max-age=31536000, immutable',
-        ...CORS_HEADERS,
+      if (end >= totalLength) end = totalLength - 1;
+      const chunk = fullBytes.slice(start, end + 1);
+      return new Response(request.method === 'HEAD' ? null : chunk, {
+        status: 206,
+        headers: {
+          ...baseHeaders,
+          'Content-Range': `bytes ${start}-${end}/${totalLength}`,
+          'Content-Length': String(chunk.byteLength),
+        },
       });
-      return new Response(chunk, { status: 206, headers: resHeaders });
     }
 
-    const resHeaders = new Headers({
-      'Content-Type': 'audio/mp4',
-      'Content-Length': String(totalLength),
-      'Accept-Ranges': 'bytes',
-      'Cache-Control': 'public, max-age=31536000, immutable',
-      ...CORS_HEADERS,
+    return new Response(request.method === 'HEAD' ? null : fullBytes, {
+      status: 200,
+      headers: {
+        ...baseHeaders,
+        'Content-Length': String(totalLength),
+      },
     });
-    return new Response(rawBuffer, { status: 200, headers: resHeaders });
   } catch (err) {
     return serverError(`Failed to stream audio narration: ${err.message}`);
   }
