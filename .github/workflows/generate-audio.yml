@@ -25,11 +25,10 @@ permissions:
 jobs:
   audio_matrix:
     runs-on: ubuntu-latest
-    if: ${{ github.event.inputs.single_version == '' || github.event.inputs.single_version == 'all' || github.event.inputs.single_version == matrix.version }}
     strategy:
       fail-fast: false
       matrix:
-        version: [kjv, niv, tlb, gw, voice]
+        version: ${{ (github.event_name == 'schedule' || github.event.inputs.single_version == '' || github.event.inputs.single_version == 'all') && fromJSON('["kjv","niv","tlb","gw","voice"]') || fromJSON(format('["{0}"]', github.event.inputs.single_version)) }}
 
     steps:
       - uses: actions/checkout@v4
